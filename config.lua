@@ -11,7 +11,7 @@ local config = {
     border = "rounded",
     width = 80,
     height = 20,
-    title = "Mason Suggest",
+    title = "Mason",
     mappings = {
       next_category = "<CR>",
       toggle = "<Space>",
@@ -30,13 +30,6 @@ local config = {
   detection = {},
 }
 
----@param opts? MasonSuggestConfig
-M.setup = function(opts)
-  if opts then
-    config = vim.tbl_deep_extend("force", config, opts)
-  end
-end
-
 -- M.current is a proxy table that reads from the live config,
 M.current = setmetatable({}, {
   __index = config,
@@ -45,10 +38,17 @@ M.current = setmetatable({}, {
   end,
 })
 
+---@param opts? MasonSuggestConfig
+M.merge = function(opts)
+  if opts then
+    config = vim.tbl_deep_extend("force", config, opts)
+  end
+end
+
 --- Check if a buffer should be ignored based on excluded filetypes/buftypes.
 ---@param bufnr integer
 ---@return boolean
-function M.should_ignore(bufnr)
+M.should_ignore = function(bufnr)
   local excluded = config.excluded
   if not excluded then return false end
 

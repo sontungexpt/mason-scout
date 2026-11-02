@@ -64,7 +64,7 @@ function M.handle_buf_enter(bufnr, on_missing)
   -- nothing to suggest.
   if #vim.lsp.get_clients({ bufnr = bufnr }) > 0 then return end
 
-  local tools = mason_mod.tools_for_languages(langs)
+  local tools = mason_mod.tools_for_keywords(langs)
   if not next(tools) then return end
 
   suggested[bufnr] = key
