@@ -142,7 +142,7 @@ local function build_help(width)
   if not state.unique and #state.tab_order > 1 then
     chunks[#chunks + 1] = string.format("1..%d tab", #state.tab_order)
   end
-  chunks[#chunks + 1] = "<CR> install"
+  chunks[#chunks + 1] = string.format("%s install", maps.install)
   chunks[#chunks + 1] = string.format("%s close", maps.close)
 
   local lines, cur = {}, ""
@@ -452,8 +452,6 @@ end
 --- All 4 tabs are always created (even empty ones) so the user can switch freely.
 --- Tools are placed under their primary category (spec.categories[1]).
 ---@param tools Tool[] flat list of { name, spec, installed } entries
----@return grouped table<string, Tab> tabs keyed by category name
----@return order string[] category order matching TABS
 local function group_into_tabs(tools)
   local grouped = {}
   -- Always create all 4 tabs first so empty tabs still appear

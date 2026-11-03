@@ -17,7 +17,6 @@ local config = {
       toggle = "<Space>",
       select_all = "a",
       deselect_all = "A",
-      skip = "s",
       close = "q",
       up = "k",
       down = "j",
