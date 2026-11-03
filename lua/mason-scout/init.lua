@@ -1,8 +1,4 @@
--- lua/mason-scout/init.lua
--- Public API: `config()` + `setup()`
-
 local M = {}
-
 
 --- Initialise the plugin: register commands and autocmds.
 ---@param opts? table Optional configuration (same as M.config)
@@ -61,9 +57,18 @@ function M.setup(opts)
                 cat = "Linter"
             end
 
+            -- Only auto-trigger for categories the user has enabled.
+            local detection = config.current.detection
+            if not detection or not detection[cat] then
+                return
+            end
+
             require("mason-scout.detector").detect(bufnr, cat,
                 function()
                     local keyword = detect_keyword(bufnr)
+                    if not keyword then
+                        return
+                    end
                     local title = keyword
                     local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
                     require("mason-scout.ui").open_tabs(title or "", tools, cat)

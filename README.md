@@ -150,6 +150,16 @@ If `filetype` is already populated, the filename match usually returns the same 
 | `filetypes` | string[] | `{ "TelescopePrompt", "NvimTree", "help", "terminal" }` |
 | `buftypes` | string[] | `{ "nofile", "nowrite", "quickfix", "terminal", "prompt" }` |
 
+### `config.detection`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `LSP` | boolean | `true` | Auto-trigger suggest on `BufReadPost`/`BufNewFile`/`FileType` (LSP category) |
+| `Formatter` | boolean | `true` | Auto-trigger suggest on `BufWritePre` (Formatter category) |
+| `Linter` | boolean | `true` | Auto-trigger suggest on `BufWritePost` (Linter category) |
+
+Set any category to `false` to disable auto-trigger for it. Set all to `false` (or `{}`) to disable auto-trigger entirely.
+
 ## Development
 
 The plugin is located at `lua/plugs/mason-suggest/lua/mason-suggest/`. All modules use `---@` annotations for [LuaLS](https://luals.github.io/) type checking.

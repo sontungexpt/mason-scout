@@ -4,41 +4,59 @@ local api = vim.api
 
 local DEFERED_MS = 50
 
---- True when any LSP client is attached to the buffer.
+--- True when no LSP client is attached to the buffer (i.e. LSP is missing).
 ---@param bufnr integer
 ---@return boolean
-local function has_lsp_client(bufnr)
-    return #vim.lsp.get_clients({ bufnr = bufnr }) > 0
+local function missing_lsp(bufnr)
+    return #vim.lsp.get_clients({ bufnr = bufnr }) == 0
 end
 
---- True when a formatter is available (conform, or an attached LSP client
---- that supports formatting).
+--- True when no formatter is available (conform, or an attached LSP client
+--- that supports formatting) — i.e. formatter is missing.
 ---@param bufnr integer
 ---@return boolean
-local function has_formatter(bufnr)
+local function missing_formatter(bufnr)
     --- Always check conform if it already loaded to follow lazy loading
     local conform = package.loaded["conform"]
     if conform and #conform.list_formatters(bufnr) > 0 then
-        return true
+        return false
     end
 
-    return #vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" }) > 0
+    return #vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" }) == 0
 end
 
---- True when a linter is configured for the filetype (nvim-lint).
+--- True when no linter is configured for the filetype (nvim-lint) — i.e. linter is missing.
 ---@param _ integer
 ---@param ft string
 ---@return boolean
-local function has_linter(_, ft)
+local function missing_linter(_, ft)
     local lint = package.loaded["lint"]
-    local linters = lint and lint.linters_by_ft[ft]
-    return linters ~= nil and #linters > 0
+    if not lint then
+        return true
+    end
+    local linters = lint.linters_by_ft[ft]
+    return linters == nil or #linters == 0
 end
 
-local CHECKS = {
-    LSP = has_lsp_client,
-    Formatter = has_formatter,
-    Linter = has_linter,
+--- True when the nvim-dap plugin is not loaded or has no adapters configured
+--- — i.e. DAP is missing.
+---@param _ integer
+---@return boolean
+local function missing_dap(_)
+    local dap = package.loaded["dap"]
+    if not dap then
+        return true
+    end
+
+    local adapters = dap and dap.adapters
+    return adapters == nil or next(adapters) == nil
+end
+
+local MISSING_CHECKERS = {
+    LSP = missing_lsp,
+    Formatter = missing_formatter,
+    Linter = missing_linter,
+    DAP = missing_dap,
 }
 
 do
@@ -50,9 +68,9 @@ do
     --- aggregated results. Duplicate triggers for the same buffer inside the
     --- debounce window are merged.
     ---@param bufnr integer
-    ---@param target "LSP" | "Formatter" | "Linter"
+    ---@param target "LSP" | "Formatter" | "Linter" | "DAP"
     ---@param missing fun()
-    ---@param skipped? boolean | fun(bufnr: integer): boolean
+    ---@param skipped? fun(bufnr: integer): boolean
     function M.detect(bufnr, target, missing, skipped)
         if pending[bufnr] then
             return
@@ -66,13 +84,11 @@ do
                     and api.nvim_buf_is_loaded(bufnr))
             then
                 return
-            elseif skipped == true or type(skipped) == "function" and skipped(bufnr) then
+            elseif skipped and skipped(bufnr) then
                 return
-            elseif CHECKS[target](bufnr) then
-                return
+            elseif MISSING_CHECKERS[target](bufnr) then
+                missing()
             end
-
-            missing()
         end, DEFERED_MS)
     end
 end

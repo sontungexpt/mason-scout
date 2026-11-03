@@ -27,14 +27,19 @@ local config = {
     filetypes = { "TelescopePrompt", "NvimTree", "help", "terminal" },
     buftypes = { "nofile", "nowrite", "quickfix", "terminal", "prompt" },
   },
-  detection = {},
+  detection = {
+    LSP = true,
+    Formatter = true,
+    Linter = false,
+    DAP = false,
+  },
 }
 
 -- M.current is a proxy table that reads from the live config,
 M.current = setmetatable({}, {
   __index = config,
   __newindex = function(_, key, value)
-      vim.notify("Please use config.setup() to update the config")
+      error("Please use config.merge() to update the config")
   end,
 })
 
