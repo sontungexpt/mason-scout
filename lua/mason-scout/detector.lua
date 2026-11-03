@@ -1,7 +1,5 @@
 local M = {}
 
-local config = require("mason-scout.config")
-
 local api = vim.api
 
 local DEFERED_MS = 50
@@ -52,9 +50,10 @@ do
     --- aggregated results. Duplicate triggers for the same buffer inside the
     --- debounce window are merged.
     ---@param bufnr integer
-    ---@param type "LSP" | "Formatter" | "Linter"
-    ---@param on_missing fun()
-    function M.detect(bufnr, type, on_missing)
+    ---@param target "LSP" | "Formatter" | "Linter"
+    ---@param missing fun()
+    ---@param skipped? boolean | fun(bufnr: integer): boolean
+    function M.detect(bufnr, target, missing, skipped)
         if pending[bufnr] then
             return
         end
@@ -67,13 +66,13 @@ do
                     and api.nvim_buf_is_loaded(bufnr))
             then
                 return
-            elseif config.should_ignore(bufnr) then
+            elseif skipped == true or type(skipped) == "function" and skipped(bufnr) then
                 return
-            elseif CHECKS[type](bufnr) then
+            elseif CHECKS[target](bufnr) then
                 return
             end
 
-            on_missing()
+            missing()
         end, DEFERED_MS)
     end
 end
