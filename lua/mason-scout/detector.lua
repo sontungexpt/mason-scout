@@ -23,7 +23,7 @@ end
 
 --- True when no linter is configured for the filetype (nvim-lint) — i.e. linter is missing.
 ---@param _ integer
----@param ft string
+---@param ft string Filetype
 ---@return boolean
 M.missing_linter = function(ft)
     local lint = package.loaded["lint"]
