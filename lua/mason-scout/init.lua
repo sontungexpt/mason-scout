@@ -8,8 +8,7 @@ function M.setup(opts)
         config.merge(opts)
     end
 
-    local group = vim.api.nvim_create_augroup("MasonSuggestAutocmd", { clear = true })
-
+    local group = vim.api.nvim_create_augroup("MasonScoutAutoTrigger", { clear = true })
 
     --- Languages for a buffer: its filetype plus the filetype implied by its
     --- file name (lowercased list). Nil when neither is known.
@@ -35,6 +34,9 @@ function M.setup(opts)
         return nil
     end
 
+    --- In-flight runs, keyed by bufnr.
+    ---@type table<integer, boolean>
+    local pending = {}
     -- Single autocmd for all detection categories.
     -- Branches by event to decide which capability to check.
     vim.api.nvim_create_autocmd({
@@ -47,6 +49,11 @@ function M.setup(opts)
         group = group,
         callback = function(args)
             local bufnr = args.buf
+            if pending[bufnr] then
+                return
+            end
+            pending[bufnr] = true
+
             local event = args.event
 
             -- BufReadPost, BufNewFile, FileType
@@ -63,8 +70,23 @@ function M.setup(opts)
                 return
             end
 
-            require("mason-scout.detector").detect(bufnr, cat,
-                function()
+
+            vim.defer_fn(function()
+                pending[bufnr] = nil
+                if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
+                    return
+                elseif config.should_ignore(bufnr) then
+                    return
+                end
+
+                local detector = require("mason-scout.detector")
+                local MISSING_CHECKERS = {
+                    LSP = detector.missing_lsp,
+                    Formatter = detector.missing_formatter,
+                    Linter = detector.missing_linter,
+                }
+
+                if MISSING_CHECKERS[cat](bufnr) then
                     local keyword = detect_keyword(bufnr)
                     if not keyword then
                         return
@@ -72,11 +94,10 @@ function M.setup(opts)
                     local title = keyword
                     local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
                     require("mason-scout.ui").open_tabs(title or "", tools, cat)
-                end,
-                config.should_ignore
-            )
+                end
+            end, 50)
         end,
-        desc = "Mason Suggest: suggest missing package",
+        desc = "MasonScout: detect and suggest missing package",
     })
 end
 

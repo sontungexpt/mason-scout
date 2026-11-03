@@ -168,7 +168,7 @@ local function compute_layout()
   state.width = width
   state.divider = string.rep("─", width)
   state.header = fit(
-    safe_str(state.title or ui.title or "Mason"),
+    safe_str("MasonScout | " .. (state.title or "")),
     width
   )
   state.help = build_help(width)
