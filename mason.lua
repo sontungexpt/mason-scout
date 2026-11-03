@@ -281,7 +281,7 @@ end
 ---@param min_score? number
 ---@param opts? MasonSuggestOpts
 ---@return MasonPackagesByCategory
-M.tools_for_keywords = function(keywords, min_score, opts)
+M.tools_by_keywords = function(keywords, min_score, opts)
   return filter_registry_tools(keywords, nil, min_score, opts)
 end
 
@@ -291,7 +291,7 @@ end
 ---@param min_score? number
 ---@param opts? MasonSuggestOpts
 ---@return MasonPackagesByCategory
-M.tools_for_category = function(keywords, category, min_score, opts)
+M.tools_by_keywords_and_category = function(keywords, category, min_score, opts)
   return filter_registry_tools(keywords, category, min_score, opts)
 end
 

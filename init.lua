@@ -18,24 +18,49 @@ end
 function M.setup(opts)
   if opts then M.config(opts) end
 
-  -- Autocmd – trigger suggestion UI only when needed
-  vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
-    group = vim.api.nvim_create_augroup("MasonSuggestAutocmd", { clear = true }),
-    callback = function()
-      local bufnr = vim.api.nvim_get_current_buf()
-      detector.handle_buf_enter(bufnr, function(ft, tools)
-        -- Flatten category-keyed table {LSP = [...], Formatter = [...]} into a
-        -- flat package list for the tab-based UI.
-        local pkgs = {}
-        for _, category_pkgs in pairs(tools or {}) do
-          for _, pkg in ipairs(category_pkgs) do
-            pkgs[#pkgs + 1] = pkg
-          end
-        end
-        ui.open_tabs(ft, pkgs)
+  local group = vim.api.nvim_create_augroup("MasonSuggestAutocmd", { clear = true })
+
+  -- LSP detection: when a file is opened or its filetype changes,
+  -- suggest LSP package if no client is attached.
+  vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile", "FileType" }, {
+    group = group,
+    callback = function(args)
+      local bufnr = args.buf or vim.api.nvim_get_current_buf()
+      detector.handle_lsp(bufnr, function(ft, tools)
+        local lsp_pkgs = tools and tools.LSP or {}
+        if #lsp_pkgs == 0 then return end
+        ui.open_tabs(ft, lsp_pkgs, "LSP")
       end)
     end,
-    desc = "Mason Suggest: trigger on buffer entry",
+    desc = "Mason Suggest: suggest missing LSP package",
+  })
+
+  -- Formatter detection: before saving, suggest formatter if none configured.
+  vim.api.nvim_create_autocmd("BufWritePre", {
+    group = group,
+    callback = function(args)
+      local bufnr = args.buf or vim.api.nvim_get_current_buf()
+      detector.handle_formatter(bufnr, function(ft, tools)
+        local fmt_pkgs = tools and tools.Formatter or {}
+        if #fmt_pkgs == 0 then return end
+        ui.open_tabs(ft, fmt_pkgs, "Formatter")
+      end)
+    end,
+    desc = "Mason Suggest: suggest missing formatter package",
+  })
+
+  -- Linter detection: after saving, suggest linter if none configured.
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    callback = function(args)
+      local bufnr = args.buf or vim.api.nvim_get_current_buf()
+      detector.handle_linter(bufnr, function(ft, tools)
+        local lint_pkgs = tools and tools.Linter or {}
+        if #lint_pkgs == 0 then return end
+        ui.open_tabs(ft, lint_pkgs, "Linter")
+      end)
+    end,
+    desc = "Mason Suggest: suggest missing linter package",
   })
 end
 
