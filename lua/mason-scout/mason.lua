@@ -313,18 +313,13 @@ M.install_packages = function(pkgs)
                     logger.info(("%s is already being installed."):format(pkg_name))
                 else
                     logger.info(("Installing %s..."):format(pkg_name))
-                    local handle = pkg:install()
-                    if handle and handle.once then
-                        handle:once("closed", vim.schedule_wrap(function()
-                            if registry.is_installed(pkg_name) then
-                                logger.info(("%s installed successfully."):format(pkg_name))
-                            else
-                                logger.error(("Failed to install %s."):format(pkg_name))
-                            end
-                        end))
-                    else
-                        logger.error(("Installation of %s could not be started."):format(pkg_name))
-                    end
+                    pkg:install({}, vim.schedule_wrap(function(success, err)
+                        if success then
+                            logger.info(("%s installed successfully."):format(pkg_name))
+                        else
+                            logger.error(("Failed to install %s: %s"):format(pkg_name, tostring(err)))
+                        end
+                    end))
                 end
             end
         end

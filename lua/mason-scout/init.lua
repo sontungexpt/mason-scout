@@ -1,21 +1,40 @@
 local M = {}
 
+local config = require("mason-scout.config")
+
+--- Lazy-loaded UI module.
+local ui
+ui = setmetatable({}, {
+    __index = function(t, k)
+        local mod = require("mason-scout.ui")
+        mod.set_handlers({
+            on_install = function(pkgs)
+                require("mason-scout.mason").install_packages(pkgs)
+            end,
+            on_suppress = function(cat, kw)
+                require("mason-scout.suppression").suppress(cat, kw)
+            end,
+        })
+        ui = mod
+        return mod[k]
+    end,
+})
+
 --- Initialise the plugin: register commands and autocmds.
 ---@param opts? table Optional configuration (same as M.config)
 function M.setup(opts)
-    local config = require("mason-scout.config")
     if opts then
         config.merge(opts)
     end
 
-    vim.api.nvim_create_user_command("MasonScoutReset", function()
+
+
+    vim.api.nvim_create_user_command("MasonScoutResetSuppression", function()
         local ok, err = require("mason-scout.suppression").reset()
         if not ok then
             vim.notify(("Failed to reset Mason Scout suppression: %s"):format(err), vim.log.levels.ERROR)
         end
     end, {})
-
-
 
     --- Languages for a buffer: its filetype plus the filetype implied by its
     --- file name (lowercased list). Nil when neither is known.
@@ -105,7 +124,7 @@ function M.setup(opts)
                 if MISSING_CHECKERS[cat](bufnr) then
                     local title = keyword
                     local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
-                    require("mason-scout.ui").open_tabs(title or "", tools, cat)
+                    ui.open_tabs(title or "", tools, cat)
                 end
             end, 50)
         end,
