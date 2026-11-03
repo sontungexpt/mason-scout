@@ -137,7 +137,8 @@ local function build_help(width)
   local chunks = {
     string.format("%s/%s move", maps.up, maps.down),
     string.format("%s toggle", maps.toggle),
-    string.format("%s/%s all", maps.select_all, maps.deselect_all),
+    string.format("%s all", maps.reset),
+    string.format("%s suppress", maps.suppress),
   }
   if not state.unique and #state.tab_order > 1 then
     chunks[#chunks + 1] = string.format("1..%d tab", #state.tab_order)
@@ -300,6 +301,26 @@ end
 -- Actions
 -- ---------------------------------------------------------------------------
 
+--- Toggle suppression for the current category-keyword pair.
+--- Uses the currently selected tab's category and the window title (keyword).
+--- If already suppressed, unsuppresses instead. Then closes the UI.
+local function suppress_current()
+  local cat = state.current
+  local keyword = state.title
+  if not cat or not keyword or keyword == "" then
+    return
+  end
+  local suppression_mod = require("mason-scout.suppression")
+  if suppression_mod.is_suppressed(cat, keyword) then
+    suppression_mod.unsuppress(cat, keyword)
+    vim.notify(("MasonScout: %s/%s will be suggested again"):format(cat, keyword), vim.log.levels.INFO)
+  else
+    suppression_mod.suppress(cat, keyword)
+    vim.notify(("MasonScout: %s/%s will no longer be suggested"):format(cat, keyword), vim.log.levels.INFO)
+  end
+  close_view()
+end
+
 ---@param delta integer
 local function move(delta)
   local tab = cur_tab()
@@ -347,11 +368,7 @@ local function set_all(value)
   end
 end
 
-local function select_all_items()
-  set_all(true)
-end
-
-local function deselect_all_items()
+local function reset_items()
   set_all(false)
 end
 
@@ -395,10 +412,12 @@ local function setup_mappings()
   bind(maps.up, function() move(-1) end, "move cursor up")
   bind(maps.down, function() move(1) end, "move cursor down")
   bind(maps.toggle, toggle_cursor_item, "toggle selection")
-  bind(maps.select_all, select_all_items, "select all")
-  bind(maps.deselect_all, deselect_all_items, "deselect all")
+  bind(maps.reset, reset_items, "reset selection")
   bind(maps.install, install_selected, "install selected")
   bind(maps.close, close_view, "close")
+
+  -- "Never suggest" action: suppress the current category-keyword pair.
+  bind(maps.suppress, suppress_current, "never suggest this category/keyword automatically")
 
   if not state.unique then
     for i = 1, #state.tab_order do
@@ -464,11 +483,7 @@ local function group_into_tabs(tools)
     push(grouped[cat], tool)
   end
 
-  local order = {}
-  for _, name in ipairs(TABS) do
-    order[#order + 1] = name
-  end
-  return grouped, order
+  return grouped, TABS
 end
 
 --- Open the UI window with grouped tabs.
@@ -530,9 +545,9 @@ end
 M.cursor_up = function() move(-1) end
 M.cursor_down = function() move(1) end
 M.toggle_selection = toggle_cursor_item
-M.select_all = select_all_items
-M.deselect_all = deselect_all_items
+M.reset = reset_items
 M.install_selected = install_selected
 M.close = close_view
+M.suppress_current = suppress_current
 
 return M

@@ -8,7 +8,14 @@ function M.setup(opts)
         config.merge(opts)
     end
 
-    local group = vim.api.nvim_create_augroup("MasonScoutAutoTrigger", { clear = true })
+    vim.api.nvim_create_user_command("MasonScoutReset", function()
+        local ok, err = require("mason-scout.suppression").reset()
+        if not ok then
+            vim.notify(("Failed to reset Mason Scout suppression: %s"):format(err), vim.log.levels.ERROR)
+        end
+    end, {})
+
+
 
     --- Languages for a buffer: its filetype plus the filetype implied by its
     --- file name (lowercased list). Nil when neither is known.
@@ -46,7 +53,7 @@ function M.setup(opts)
         "BufWritePre",
         "BufWritePost",
     }, {
-        group = group,
+        group = vim.api.nvim_create_augroup("MasonScoutAutoTrigger", { clear = true }),
         callback = function(args)
             local bufnr = args.buf
             if pending[bufnr] then
@@ -70,12 +77,21 @@ function M.setup(opts)
                 return
             end
 
-
             vim.defer_fn(function()
                 pending[bufnr] = nil
                 if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
                     return
                 elseif config.should_ignore(bufnr) then
+                    return
+                end
+
+                local keyword = detect_keyword(bufnr)
+                if not keyword then
+                    return
+                end
+
+                -- Skip automatic suggestion if this category-keyword pair is suppressed.
+                if require("mason-scout.suppression").is_suppressed(cat, keyword) then
                     return
                 end
 
@@ -87,10 +103,6 @@ function M.setup(opts)
                 }
 
                 if MISSING_CHECKERS[cat](bufnr) then
-                    local keyword = detect_keyword(bufnr)
-                    if not keyword then
-                        return
-                    end
                     local title = keyword
                     local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
                     require("mason-scout.ui").open_tabs(title or "", tools, cat)
