@@ -35,7 +35,6 @@ function M.setup(opts)
             if pending[bufnr] then
                 return
             end
-            pending[bufnr] = true
 
             local event = args.event
             local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
@@ -52,44 +51,50 @@ function M.setup(opts)
                 cat = "DAP"
             end
 
-            -- Only auto-trigger for categories the user has enabled.
-            local detection = config.current.detection
-            if not detection or not detection[cat]
-                or not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr)
-                or config.should_ignore(bufnr)
-            then
+            pending[bufnr] = true
+            -- Defer to avoid multiple detections in quick succession.
+            vim.defer_fn(function()
                 pending[bufnr] = nil
-                return
-            end
 
-            -- DAP does not need a buffer keyword; use "dap" as the search keyword.
-            local keyword = ft ~= "" and ft or vim.filetype.match({ filename = args.file }) or ""
+                -- Only auto-trigger for categories the user has enabled.
+                local detection = config.current.detection
+                if not vim.api.nvim_buf_is_valid(bufnr)
+                    or not vim.api.nvim_buf_is_loaded(bufnr)
+                    or not detection or not detection[cat]
+                    or config.should_ignore(bufnr)
+                then
+                    return
+                end
 
-            if keyword == ""
-                or require("mason-scout.suppression").is_suppressed(cat, keyword)
-            then
-                pending[bufnr] = nil
-                return
-            end
+                -- DAP does not need a buffer keyword; use "dap" as the search keyword.
+                local keyword = ft ~= "" and ft or vim.filetype.match({ filename = args.file }) or ""
 
-            local missing = false
-            local detector = require("mason-scout.detector")
-            if cat == "LSP" then
-                missing = detector.missing_lsp(bufnr)
-            elseif cat == "Formatter" then
-                missing = detector.missing_formatter(bufnr)
-            elseif cat == "Linter" then
-                missing = detector.missing_linter(ft)
-            elseif cat == "DAP" then
-                missing = detector.missing_dap(bufnr)
-            end
+                if keyword == ""
+                    or require("mason-scout.suppression").is_suppressed(cat, keyword)
+                then
+                    return
+                end
 
-            pending[bufnr] = nil
-            if missing then
+                local missing = false
+                local detector = require("mason-scout.detector")
+                if cat == "LSP" then
+                    missing = detector.missing_lsp(bufnr)
+                elseif cat == "Formatter" then
+                    missing = detector.missing_formatter(bufnr)
+                elseif cat == "Linter" then
+                    missing = detector.missing_linter(ft)
+                elseif cat == "DAP" then
+                    missing = detector.missing_dap(bufnr)
+                end
+
+                if not missing then
+                    return
+                end
+
                 keyword = keyword:lower()
                 local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
                 require("mason-scout.ui").open_tabs(keyword, tools, cat)
-            end
+            end, 50)
         end,
         desc = "MasonScout: detect and suggest missing package",
     })
