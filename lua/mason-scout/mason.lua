@@ -47,13 +47,13 @@ local MAX_SPREAD = 2    -- subsequence window <= keyword length * MAX_SPREAD
 -- Holds the registry's own spec tables, so there are no per-package wrappers.
 --------------------------------------------------------------------------------
 
-local index
+local index_mut
 do
     ---@type Index|nil
     local _index = nil
     --- Build (or return) the index from mason-registry.
     ---@return Index
-    index = function()
+    index_mut = function()
         if _index then
             return _index
         end
@@ -87,6 +87,7 @@ do
         _index = { lang = lang, specs = specs, names = names }
         return _index
     end
+
     -- Invalidate the index when the registry refreshes.
     if registry.on then
         registry:on("update:success", function()
@@ -171,7 +172,7 @@ M.tools_by_keywords = function(keywords, opts)
     local include_deprecated = opts and opts.include_deprecated or false
 
     -- Build (or retrieve) the in-memory package index.
-    local idx = index()
+    local idx = index_mut()
     -- Flat list of matched tools.
     local results = {}
     -- Dedupe specs matched by multiple keywords (avoids duplicate entries).

@@ -25,7 +25,7 @@ end
 ---@param _ integer
 ---@param ft string
 ---@return boolean
-M.missing_linter = function(_, ft)
+M.missing_linter = function(ft)
     local lint = package.loaded["lint"]
     if not lint then
         return true
