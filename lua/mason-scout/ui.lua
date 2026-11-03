@@ -1,27 +1,37 @@
--- lua/mason-suggest/ui.lua
+-- lua/mason-scout/ui.lua
 --
 -- Tab-based UI for selecting missing Mason packages to install.
--- Fixed tabs: LSP, Linter, Formatter, DAP (matches Mason's main categories).
--- Switch tabs with number keys, move with up/down mappings, toggle with
--- <Space>, select/deselect all in the tab, and install everything selected
--- across all tabs with <CR>.
 --
--- Modes:
---   * open_tabs(ft, pkgs, initial_category)              -- packages grouped into category tabs
---   * open_category_tab(ft, cat, pkgs) -- a single category tab
+-- The UI shows four fixed tabs (LSP, Linter, Formatter, DAP) matching Mason's
+-- main categories. Each tab lists packages that can be toggled for installation.
+--
+-- Public API:
+--   * open_tabs(title, tools, initial_category)
+--       Open all non-empty tabs grouped by package category.
+--       title   — string shown in the window header (e.g. detected language)
+--       tools   — flat list of { name, spec, installed } entries
+--       initial_category — optional category to focus first ("LSP", "Linter", ...)
+--   * open_category_tab(title, cat, pkgs)
+--       Open a single category tab.
+--
+-- Keymaps (inside the UI):
+--   j/k         Move cursor down / up
+--   <Space>     Toggle selection on current item
+--   a           Select all items in current tab
+--   A           Deselect all items in current tab
+--   s           Skip current item (hide from this session)
+--   q           Close the UI
+--   <CR>        Install all selected items across all tabs
+--   1/2/3/4     Switch to LSP / Linter / Formatter / DAP tab
 
 local M = {}
 
-local config = require("mason-suggest.config")
-local mason = require("mason-suggest.mason")
+local config = require("mason-scout.config")
+local mason = require("mason-scout.mason")
 
 local api = vim.api
 
 local TABS = { "LSP", "Linter", "Formatter", "DAP" }
-local VALID_TAB = {}
-for _, name in ipairs(TABS) do
-  VALID_TAB[name] = true
-end
 
 local HEADER_LINES = 3 -- title, tab bar, blank
 local AUGROUP = "MasonSuggestUI"
@@ -45,7 +55,7 @@ local AUGROUP = "MasonSuggestUI"
 ---@field tabs table<string, Tab>
 ---@field tab_order string[]
 ---@field current string
----@field filetype string
+---@field title string        -- language or label shown in the window header
 ---@field unique boolean
 ---@field max_items integer
 ---@field width integer
@@ -61,7 +71,7 @@ local function new_state()
     tabs = {},
     tab_order = {},
     current = TABS[1],
-    filetype = "",
+    title = "",
     unique = false,
     max_items = 0,
     width = 80,
@@ -158,7 +168,7 @@ local function compute_layout()
   state.width = width
   state.divider = string.rep("─", width)
   state.header = fit(
-    string.format("%s  |  %s", safe_str(ui.title or "Mason"), safe_str(state.filetype)),
+    safe_str(state.title or ui.title or "Mason"),
     width
   )
   state.help = build_help(width)
@@ -387,12 +397,13 @@ local function setup_mappings()
   bind(maps.toggle, toggle_cursor_item, "toggle selection")
   bind(maps.select_all, select_all_items, "select all")
   bind(maps.deselect_all, deselect_all_items, "deselect all")
-  bind("<CR>", install_selected, "install selected")
+  bind(maps.install, install_selected, "install selected")
   bind(maps.close, close_view, "close")
 
   if not state.unique then
     for i = 1, #state.tab_order do
-      bind(tostring(i), function() switch_tab(i) end, "switch to tab " .. i)
+      local idx = i
+      bind(tostring(idx), function() switch_tab(idx) end, "switch to tab " .. idx)
     end
   end
 end
@@ -420,57 +431,60 @@ local function new_tab()
   return { items = {}, names = {}, selected = 0, cursor = 1, scroll = 1 }
 end
 
---- Append a package to a tab unless a package with that name is already there.
----@param tab Tab
----@param pkg table {name, spec, installed}
-local function push(tab, pkg)
-  if tab.names[pkg.name] then
+--- Append a tool to a tab unless a tool with that name is already there.
+--- Dedupe is by name so the same package never appears twice in one tab.
+---@param tab Tab target tab to append into
+---@param tool Tool { name, spec, installed }
+local function push(tab, tool)
+  if tab.names[tool.name] then
     return
   end
-  tab.names[pkg.name] = true
+  tab.names[tool.name] = true
   tab.items[#tab.items + 1] = {
-    name = safe_str(pkg.name),
-    description = safe_str((pkg.spec and pkg.spec.description) or pkg.name),
-    installed = pkg.installed or false,
+    name = safe_str(tool.name),
+    description = safe_str((tool.spec and tool.spec.description) or tool.name),
+    installed = tool.installed or false,
     selected = false,
   }
 end
 
---- Group packages into the fixed LSP / Linter / Formatter / DAP tabs.
---- Unknown categories fall back to LSP.
----@param pkgs table[]
----@return table<string, Tab>, string[]
-local function group_into_tabs(pkgs)
+--- Group tools into the fixed LSP / Linter / Formatter / DAP tabs.
+--- All 4 tabs are always created (even empty ones) so the user can switch freely.
+--- Tools are placed under their primary category (spec.categories[1]).
+---@param tools Tool[] flat list of { name, spec, installed } entries
+---@return grouped table<string, Tab> tabs keyed by category name
+---@return order string[] category order matching TABS
+local function group_into_tabs(tools)
   local grouped = {}
-  for _, pkg in ipairs(pkgs) do
-    local cats = pkg.spec and pkg.spec.categories
-    local cat = cats and cats[1]
-    if not VALID_TAB[cat] then
-      cat = "LSP"
-    end
+  -- Always create all 4 tabs first so empty tabs still appear
+  for _, name in ipairs(TABS) do
+    grouped[name] = new_tab()
+  end
+  for _, tool in ipairs(tools) do
+    local cat = (tool.spec and tool.spec.categories and tool.spec.categories[1]) or "LSP"
     grouped[cat] = grouped[cat] or new_tab()
-    push(grouped[cat], pkg)
+    push(grouped[cat], tool)
   end
 
   local order = {}
   for _, name in ipairs(TABS) do
-    if grouped[name] then
-      order[#order + 1] = name
-    end
+    order[#order + 1] = name
   end
   return grouped, order
 end
 
----@param ft string
----@param grouped table<string, Tab>
----@param order string[]
----@param unique boolean
----@param initial_category string|nil
-local function open_window(ft, grouped, order, unique, initial_category)
+--- Open the UI window with grouped tabs.
+--- Creates the buffer and window, registers keymaps and autocmds, then renders.
+---@param title string title shown in the window header
+---@param grouped table<string, Tab> tabs keyed by category name
+---@param order string[] category display order
+---@param unique boolean whether this is a unique (single-shot) session
+---@param initial_category string|nil category to focus first
+local function open_window(title, grouped, order, unique, initial_category)
   close_view()
 
   state.unique = unique
-  state.filetype = ft
+  state.title = title
   state.tabs = grouped
   state.tab_order = order
   if initial_category and grouped[initial_category] then
@@ -500,33 +514,18 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Open packages grouped into LSP / Linter / Formatter / DAP tabs.
----@param ft string filetype being checked
----@param pkgs table[] list of {name, spec, installed}
+---@param title string title shown in the UI header
+---@param tools Tool[] flat list of { name, spec, installed } entries
 ---@param initial_category string|nil category to start on (LSP, Linter, Formatter, DAP)
-function M.open_tabs(ft, pkgs, initial_category)
-  if not pkgs or #pkgs == 0 then
+function M.open_tabs(title, tools, initial_category)
+  if not tools or #tools == 0 then
     return
   end
-  local grouped, order = group_into_tabs(pkgs)
+  local grouped, order = group_into_tabs(tools)
   if #order == 0 then
     return
   end
-  open_window(ft, grouped, order, false, initial_category)
-end
-
---- Open a single category tab. Number keys are disabled.
----@param ft string filetype being checked
----@param category string Mason category name
----@param pkgs table[] list of {name, spec, installed} for that category
-function M.open_category_tab(ft, category, pkgs)
-  if not pkgs or #pkgs == 0 then
-    return
-  end
-  local tab = new_tab()
-  for _, pkg in ipairs(pkgs) do
-    push(tab, pkg)
-  end
-  open_window(ft, { [category] = tab }, { category }, true)
+  open_window(title, grouped, order, false, initial_category)
 end
 
 -- Expose helpers for keymaps (and external callers).

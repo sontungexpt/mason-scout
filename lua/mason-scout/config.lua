@@ -1,4 +1,4 @@
--- lua/mason-suggest/config.lua
+-- lua/mason-scout/config.lua
 -- Defaults & deep-merge using vim.tbl_deep_extend (kept simple).
 -- Access config directly: config.ui.width, config.excluded.filetypes, etc.
 
@@ -13,7 +13,7 @@ local config = {
     height = 20,
     title = "Mason",
     mappings = {
-      next_category = "<CR>",
+      install = "<CR>",
       toggle = "<Space>",
       select_all = "a",
       deselect_all = "A",
