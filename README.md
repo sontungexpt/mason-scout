@@ -11,13 +11,13 @@ https://github.com/user-attachments/assets/17f5f39a-9a40-4706-ab14-97dfcdbddda1
 
 ## Why this
 
-I am sure that many people using mason.nvim to install language tooling. And we also have many plugins that depend on mason.nvim like 
-[mason-lspconfig](https://github.com/williamboman/mason-lspconfig.nvim) and [mason-nvim-dap](https://github.com/jay-babu/mason-nvim-dap). Or even many user custom there ensure_installed code by self (I used to do like this). But in a few periods time ago. I using zed and i really happy that zed always recommend some lsp for me to install. I think it's good. 
+I am sure that many people using mason.nvim to install language tooling. And we also have many plugins that depend on mason.nvim like
+[mason-lspconfig](https://github.com/williamboman/mason-lspconfig.nvim) and [mason-nvim-dap](https://github.com/jay-babu/mason-nvim-dap). Or even many user custom there ensure_installed code by self (I used to do like this). But in a few periods time ago. I using zed and i really happy that zed always recommend some lsp for me to install. I think it's good.
 - Before, everytime i reinstalled the neovim because of some reason the ensure_install logic was not working properly. It usually break at first time (Small but noise). And to get a better experience we usually add many pkgs acroos many languages to the ensure_install list. It's good especially when you know everything you need and you can reinstall exactly what you need again without thinking.
 - But what happens if you suddenly open a file that requires a package that you don't have installed? Are you sure you always remember the package name to install? Or you will open the ui of mason.nvim to install it which having a super long list of packages to choose from.
 - This plugin is aims to be a small tool wrapper mason.nvim that give you a smaller list pkgs based on your current open files.
-- I think it's better to have a smaller list of packages to choose from than a super long list. 
-- If you always want keep everything reproducible, feel free to use 
+- I think it's better to have a smaller list of packages to choose from than a super long list.
+- If you always want keep everything reproducible, feel free to use
 mason-lspconfig or many other plugins.
 - Hope you will like this plugin and find it useful.
 
@@ -33,7 +33,7 @@ mason-lspconfig or many other plugins.
 ```lua
 --- You should split like this in lazy.nvim because we don't want to load mason.nvim until it's actually needed
 {
-  dir = "/home/stilux/.config/nvim/lua/plugs/mason-scout",
+  dir = "sontungexpt/mason-scout",
   lazy = false,
   cmd = { "MasonScout", "MasonScoutResetSuppression" },
   opts = {},
