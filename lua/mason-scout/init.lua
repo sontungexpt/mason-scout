@@ -20,6 +20,46 @@ function M.setup(opts)
     ---@type table<integer, boolean>
     local pending = {}
 
+    --- Group tools into plain package data keyed by category.
+    --- A package can belong to many categories, so it is added under every
+    --- category it declares. Only categories that have at least one tool are
+    --- included. Tabs are ordered in discovery order (first-seen category first).
+    ---@param tools Tool[] flat list of { name, spec, installed, score }
+    ---@param n integer|nil number of tools to group (default: all)
+    ---@return table<string, table[]> tab_pkgs packages grouped by category name
+    ---@return string[] order category names in discovery order
+    local function group_into_tabs(tools, n)
+        local tab_pkgs = {}
+        local order = {}
+
+        n = n or #tools
+        if n == 0 then
+            return tab_pkgs, order
+        end
+
+        -- Group tools by every category they declare, remembering discovery order
+        for i = 1, n do
+            local tool = tools[i]
+            local cats = tool.spec and tool.spec.categories or { "LSP" }
+            for _, cat in ipairs(cats) do
+                if not tab_pkgs[cat] then
+                    tab_pkgs[cat] = {}
+                    order[#order + 1] = cat
+                end
+                tab_pkgs[cat][#tab_pkgs[cat] + 1] = {
+                    name = tool.spec.name,
+                    description = tool.spec.description or tool.spec.name,
+                    installed = tool.installed or false,
+                    selected = false,
+                }
+            end
+        end
+
+        -- Sort categories in discovery order (first-seen category first)
+        table.sort(order)
+        return tab_pkgs, order
+    end
+
     -- Single autocmd for all detection categories.
     -- Branches by event to decide which capability to check.
     vim.api.nvim_create_autocmd({
@@ -92,8 +132,11 @@ function M.setup(opts)
                 end
 
                 keyword = keyword:lower()
-                local tools = require("mason-scout.mason").tools_by_keywords({ keyword })
-                require("mason-scout.ui").open_tabs(keyword, tools, cat)
+                local tools, n = require("mason-scout.mason").tools_by_keywords({ keyword })
+                local tab_pkgs, tab_order = group_into_tabs(tools, n)
+                -- open_tabs will use `cat` if it has pkgs, else fall back to the
+                -- first non-empty category in tab_order (queue behaviour).
+                require("mason-scout.ui").open_tabs(keyword, tab_pkgs, tab_order, cat)
             end, 50)
         end,
         desc = "MasonScout: detect and suggest missing package",
