@@ -136,8 +136,17 @@ function M.setup(opts)
                 local tab_pkgs, tab_order = group_into_tabs(tools, n)
                 -- open_tabs will use `cat` if it has pkgs, else fall back to the
                 -- first non-empty category in tab_order (queue behaviour).
-                require("mason-scout.ui").open_tabs(keyword, tab_pkgs, tab_order, cat)
-            end, 50)
+                local title = ("Recommend %s for %s"):format(cat, keyword)
+
+                require("mason-scout.ui").open_tabs(title, tab_pkgs, tab_order, cat, {
+                    on_suppress = function(cat_arg)
+                        require("mason-scout.suppression").suppress(cat_arg, keyword)
+                    end,
+                    on_install = function(pkgs)
+                        require("mason-scout.mason").install_packages(pkgs)
+                    end,
+                })
+            end, 200)
         end,
         desc = "MasonScout: detect and suggest missing package",
     })

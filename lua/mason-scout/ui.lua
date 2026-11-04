@@ -7,34 +7,34 @@
 --
 -- The UI is intentionally decoupled from business logic. It knows nothing
 -- about installation, suppression, or Mason. All side effects are routed
--- through callback handlers supplied by the caller (see M.open_tabs).
+-- through callback handlers supplied by the caller.
 --
 -- Public API:
---   * set_handlers(handlers)
---       Register callback handlers at module level:
---         * on_install(pkgs)      called when user confirms install
---         * on_suppress(cat, kw)  called when user suppresses current item
---   * open_tabs(title, tools, initial_category)
+--   * open_tabs(title, tab_pkgs, tab_order, initial_tab, handlers)
 --       Open all non-empty tabs grouped by package category.
---       title   — string shown in the window header (e.g. detected language)
---       tools   — flat list of { name, spec, installed } entries
---       initial_category — optional category to focus first ("LSP", "Linter", ...)
---   * open_category_tab(title, cat, pkgs)
---       Open a single category tab.
+--       title       — string shown in the window header (e.g. detected language)
+--       tab_pkgs    — table<category, { name, description?, installed?, selected? }[]>
+--       tab_order   — category display order; empty categories are skipped
+--       initial_tab — optional category to focus first ("LSP", "Linter", ...)
+--       handlers    — optional callbacks (missing ones are simply not called):
+--                       * on_install(pkgs)  called when user confirms install
+--                       * on_suppress(cat)  called when user suppresses current tab
+--   * open_category_tab(label, cat, pkgs, handlers)
+--       Open a single category in single-tab mode (no tab switching).
 --
--- Keymaps (inside the UI):
---   j/k         Move cursor down / up
---   <Space>     Toggle selection on current item
---   a           Select all items in current tab
---   A           Deselect all items in current tab
---   s           Skip current item (hide from this session)
---   q           Close the UI
---   <CR>        Install all selected items across all tabs
---   1/2/3/4     Switch to tab by index
---   /           Fuzzy-search items in current tab (prompts for input)
---   n           Jump to next search match
---   N           Jump to previous search match
---   <Esc>       Clear search
+-- Keymaps (inside the UI) come from config.current.ui.mappings; names that are
+-- not configured are skipped (no mapping, no help entry):
+--   up / down       Move cursor
+--   toggle          Toggle selection on current item
+--   reset           Deselect all items in current tab
+--   install         Install all selected items across all tabs
+--   suppress        Never suggest the current category again
+--   close           Close the UI
+--   search          Fuzzy-search items in current tab (prompts for input)
+--   next_match      Jump to next search match
+--   prev_match      Jump to previous search match
+--   1..9            Switch to tab by index (multi-tab mode only)
+--   <Esc>           Clear search
 
 local M = {}
 
@@ -43,7 +43,7 @@ local config = require("mason-scout.config")
 local api = vim.api
 local fn = vim.fn
 
-local HEADER_LINES = 3 -- title, tab bar, blank
+local HEADER_LINES = 3 -- label, tab bar, blank
 local AUGROUP_NAME = "MasonSuggestUI"
 
 ---@class TabItem
@@ -54,10 +54,14 @@ local AUGROUP_NAME = "MasonSuggestUI"
 
 ---@class Tab
 ---@field items TabItem[]
----@field selected integer              number of selected items
+---@field total_selected integer              number of selected items
 ---@field cursor integer                1-based index into items
 ---@field scroll integer                1-based index of first visible item
 ---@field haystack? table[]             lazily built fuzzy-search haystack
+
+---@class Handlers
+---@field on_install? fun(pkgs: string[])
+---@field on_suppress? fun(cat: string)
 
 ---@class UIState
 ---@field tabs table<string, Tab>    tabs data by name
@@ -70,19 +74,16 @@ local AUGROUP_NAME = "MasonSuggestUI"
 ---@field search_matches integer[]   indices of matching items in current tab
 ---@field search_idx integer         position within search_matches (0 = none active)
 ---
----@field bufnr integer|nil          the UI buffer handle, or nil when closed
----@field winid integer|nil          the UI window handle, or nil when closed
+---@field bufnr integer              the UI buffer handle, 0 when closed
+---@field winid integer              the UI window handle, 0 when closed
 ---@field width integer              window width in columns
 ---@field height integer             window height in rows
----@field title string               language or label shown in the window header
+---@field label string                display header shown in the UI window
+---@field handlers Handlers          callback handlers (on_install, on_suppress)
 ---@field rows integer               visible item rows (excludes header/footer)
 ---@field header string              header line shown above the tab bar
 ---@field divider string             divider line shown before the help footer
 ---@field help string[]              wrapped keymap help lines shown at the bottom
-
----@class Handlers
----@field on_install? fun(pkgs: string[])
----@field on_suppress? fun(cat: string, kw: string)
 
 --- Create a fresh empty UIState.
 ---@return UIState a new state with empty tabs and zeroed counters
@@ -95,9 +96,10 @@ local function new_state()
         max_items = 0,
         total_selected = 0,
 
-        width = 80,
+        width = 100,
         height = 20,
-        title = "",
+        label = "",
+        handlers = {},
         rows = 1,
         header = "",
         divider = "",
@@ -106,6 +108,9 @@ local function new_state()
         search_pattern = "",
         search_matches = {},
         search_idx = 0,
+
+        bufnr = 0,
+        winid = 0,
     }
 end
 
@@ -115,29 +120,41 @@ local state = new_state()
 -- Helpers
 -- ---------------------------------------------------------------------------
 
---- Check if the UI window is valid and open.
----@return boolean true if the window exists and is valid
+--- Check that the UI window and buffer both exist and are valid.
+---@return boolean
 local function win_valid()
-    return state.winid ~= nil and api.nvim_win_is_valid(state.winid)
+    return state.winid > 0
+        and api.nvim_win_is_valid(state.winid)
+        and state.bufnr > 0
+        and api.nvim_buf_is_valid(state.bufnr)
 end
 
---- UI section of the plugin config (never nil).
+--- UI section of the plugin config (never nil, even before setup()).
 ---@return table
 local function ui_cfg()
-    return config.current.ui or {}
+    local cur = config.current
+    return type(cur.ui) == "table" and cur.ui or {}
 end
 
---- Clamp a value into [lo, hi].
+--- Keymap table from the config (never nil).
+---@return table<string, string|nil>
+local function mappings()
+    local maps = ui_cfg().mappings
+    return type(maps) == "table" and maps or {}
+end
+
+--- Clamp a value into [lo, hi]. If hi < lo the result is lo.
 ---@param v number
 ---@param lo number
 ---@param hi number
 ---@return number
 local function clamp(v, lo, hi)
-    return math.min(math.max(v, lo), hi)
+    return math.max(lo, math.min(v, hi))
 end
 
---- Replace newlines so a value is safe to show on one line.
----@param s string|nil
+--- Make any value safe to show on one line: nil -> "", non-strings are
+--- stringified, control characters (newline, tab, ...) become spaces.
+---@param s any
 ---@return string
 local function safe_str(s)
     local out = (s or ""):gsub("[\n\r]", " ")
@@ -164,7 +181,7 @@ local function fit(s, width)
     return fn.strcharpart(s, 0, width - 1) .. "…"
 end
 
---- Wrap a 1-based index into the range [1, n].
+--- Wrap a 1-based index into the range [1, n]. `n` must be > 0.
 ---@param idx integer index to wrap (can be out of bounds)
 ---@param n integer upper bound (number of items)
 ---@return integer wrapped 1-based index within [1, n]
@@ -172,29 +189,18 @@ local function wrap(idx, n)
     return ((idx - 1) % n) + 1
 end
 
---- Get the currently active tab.
----@return Tab the currently selected tab object
+--- Get the currently active tab, or nil when the UI is closed.
+---@return Tab|nil
 local function curr_tab()
     return state.tabs[state.curr_tab]
 end
 
--- Module-level callback handlers. Registered once via M.on_event();
--- read by install_selected() and suppress() instead of being passed
--- through open_tabs().
-local handlers = {
-    on_install = function(pkgs)
-        require("mason-scout.mason").install_packages(pkgs)
-    end,
-    on_suppress = function(cat, keyword)
-        require("mason-scout.suppression").suppress(cat, keyword)
-    end,
-}
-
--- Register callback handlers at module level.
---- @param event string event name
---- @param handler function event handler
-M.on_event = function(event, handler)
-    handlers[event] = handler
+--- Call a handler only if it is a function.
+---@param handler any
+local function call_handler(handler, ...)
+    if type(handler) == "function" then
+        handler(...)
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -203,11 +209,11 @@ end
 
 --- Build the keymap help footer lines, greedily wrapped to fit within width.
 ---@param width integer maximum display width per line
----@param tab_name string current category name
----@param title string current keyword/title
+---@param tab_name string|nil current category name
+---@param label string|nil current label (shown in suppress hint)
 ---@return string[] wrapped help lines
-local function build_help(width, tab_name, title)
-    local maps = config.current.ui.mappings
+local function build_help(width, tab_name, label)
+    local maps = mappings()
 
     local main_chunks = {
         string.format("%s/%s move", maps.up, maps.down),
@@ -232,7 +238,7 @@ local function build_help(width, tab_name, title)
     end
 
     -- Suppress gets its own dedicated line so its descriptive text is always visible.
-    lines[#lines + 1] = ("  %s never suggest %s again for %s"):format(maps.suppress, tab_name, title)
+    lines[#lines + 1] = ("  %s never suggest %s again for %s"):format(maps.suppress, tab_name, label)
     return lines
 end
 
@@ -245,8 +251,8 @@ local function compute_layout()
     local width = math.max(math.min(ui_cfg().width or 100, vim.o.columns - 6), 20)
     state.width = width
     state.divider = string.rep("─", width)
-    state.header = fit(safe_str("MasonScout | " .. (state.title or "")), width)
-    state.help = build_help(width, state.curr_tab, state.title)
+    state.header = fit(safe_str("MasonScout | " .. state.label), width)
+    state.help = build_help(width, state.curr_tab, state.label)
 
     -- header + "Selected" line + divider + help
     local chrome = HEADER_LINES + 2 + #state.help
@@ -298,7 +304,8 @@ local function tab_bar()
     end
 
     local parts = {}
-    for i, name in ipairs(state.tab_order) do
+    for i = 1, #state.tab_order do
+        local name = state.tab_order[i]
         local label = i .. " " .. name
         parts[i] = (name == state.curr_tab) and ("[" .. label .. "]") or (" " .. label .. " ")
     end
@@ -314,6 +321,10 @@ local function render()
     end
 
     local tab = curr_tab()
+    if not tab then
+        return
+    end
+
     local items = tab.items
     local rows = state.rows
     local bufnr = state.bufnr
@@ -340,7 +351,7 @@ local function render()
         lines[#lines + 1] = "" -- pad so the footer stays pinned to the bottom
     end
 
-    local summary = "  Selected: " .. tab.selected .. "/" .. item_count
+    local summary = "  Selected: " .. tab.total_selected .. "/" .. item_count
     if not state.single_tab then
         summary = summary .. "  (" .. state.total_selected .. " total)"
     end
@@ -360,14 +371,15 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Close the UI window, delete its buffer, remove autocmds, and reset state.
+--- Note: this replaces `state`, so read anything you need from it BEFORE calling.
 local function close_view()
     pcall(api.nvim_del_augroup_by_name, AUGROUP_NAME) -- remove autocmds before closing
     local win, buf = state.winid, state.bufnr
     state = new_state()
-    if win and api.nvim_win_is_valid(win) then
+    if win > 0 and api.nvim_win_is_valid(win) then
         pcall(api.nvim_win_close, win, true)
     end
-    if buf and api.nvim_buf_is_valid(buf) then
+    if buf > 0 and api.nvim_buf_is_valid(buf) then
         pcall(api.nvim_buf_delete, buf, { force = true })
     end
 end
@@ -380,16 +392,6 @@ local function resize()
     compute_layout()
     pcall(api.nvim_win_set_config, state.winid, win_config())
     render()
-end
-
---- Close the UI first (so a failing handler can't leave the window open),
---- then invoke the named handler.
----@param event string handler name ("on_install" | "on_suppress")
-local function run_handler(event, ...)
-    close_view()
-    local handler = handlers[event]
-    assert(handler, event .. " handler is required")
-    handler(...)
 end
 
 -- ---------------------------------------------------------------------------
@@ -411,8 +413,8 @@ local function compute_matches(tab, pattern)
     -- Item names are immutable, so build the haystack once per tab.
     if not tab.haystack then
         local haystack = {}
-        for i, item in ipairs(items) do
-            haystack[i] = { name = item.name, idx = i }
+        for i = 1, #items do
+            haystack[i] = { name = items[i].name, idx = i }
         end
         tab.haystack = haystack
     end
@@ -420,8 +422,8 @@ local function compute_matches(tab, pattern)
     local hits = fn.matchfuzzy(tab.haystack, pattern, { key = "name" })
 
     local matches = {}
-    for i, hit in ipairs(hits) do
-        matches[i] = hit.idx
+    for i = 1, #hits do
+        matches[i] = hits[i].idx
     end
     return matches
 end
@@ -480,10 +482,11 @@ end
 
 --- Prompt the user for a search pattern and start fuzzy search in the current tab.
 --- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
+--- vim.ui.input may be asynchronous, so the UI can be gone when the callback runs.
 local function prompt_search()
     vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
-        if input == nil then
-            return -- user cancelled
+        if input == nil or not win_valid() then
+            return -- cancelled, or the UI was closed while prompting
         end
         local pattern = input:lower()
         if pattern == "" then
@@ -501,22 +504,26 @@ end
 -- Actions
 -- ---------------------------------------------------------------------------
 
---- Never suggest this category-keyword pair again.
---- Uses the currently selected tab's category and the window title (keyword).
+--- Never suggest this category again (for the current label).
+--- Uses the currently selected tab's category and the window label.
 --- Delegates to the caller's on_suppress handler; the UI knows nothing about
 --- suppression logic. Then closes the UI.
 local function suppress()
-    local cat, keyword = state.curr_tab, state.title
-    if not cat or not keyword or keyword == "" then
-        return
-    end
-    run_handler("on_suppress", cat, keyword)
+    local cat = state.curr_tab
+    -- close_view() replaces `state`, so grab the handler first.
+    local handler = state.handlers.on_suppress
+    close_view()
+    call_handler(handler, cat)
 end
 
 --- Move the cursor up or down within the current tab (wraps around).
 ---@param delta integer -1 to move up, 1 to move down
 local function move(delta)
     local tab = curr_tab()
+    if not tab then
+        return
+    end
+
     local n = #tab.items
     if n == 0 then
         return
@@ -536,7 +543,7 @@ local function set_item_selected(tab, item, value)
     end
     local diff = value and 1 or -1
     item.selected = value
-    tab.selected = tab.selected + diff
+    tab.total_selected = tab.total_selected + diff
     state.total_selected = state.total_selected + diff
     return true
 end
@@ -545,6 +552,9 @@ end
 --- Re-renders only if the selection actually changed.
 local function toggle_cursor_item_selected()
     local tab = curr_tab()
+    if not tab then
+        return
+    end
     local item = tab.items[tab.cursor]
     if item and set_item_selected(tab, item, not item.selected) then
         render()
@@ -556,9 +566,12 @@ end
 ---@param value boolean true to select all, false to deselect all
 local function set_all_items_selected(value)
     local tab = curr_tab()
+    if not tab then
+        return
+    end
     local changed = false
-    for _, item in ipairs(tab.items) do
-        if set_item_selected(tab, item, value) then
+    for i = 1, #tab.items do
+        if set_item_selected(tab, tab.items[i], value) then
             changed = true
         end
     end
@@ -585,7 +598,10 @@ local function install_selected()
         end
     end
 
-    run_handler("on_install", pkgs)
+    -- close_view() replaces `state`, so grab the handler first.
+    local handler = state.handlers.on_install
+    close_view()
+    call_handler(handler, pkgs)
 end
 
 --- Switch the active tab by 1-based index.
@@ -600,6 +616,9 @@ local function switch_tab(n)
 
     -- Keep the same search pattern but recompute matches for the new tab.
     local tab = curr_tab()
+    if not tab then
+        return
+    end
     if state.search_pattern ~= "" then
         apply_search(tab, state.search_pattern)
     else
@@ -616,11 +635,18 @@ end
 
 --- Register all keymaps for the UI buffer (movement, toggle, install, etc.).
 --- Creates buffer-local mappings with `nowait` for responsive input.
+--- Unconfigured keys are skipped, and every action is a no-op once the UI is gone.
 local function setup_mappings()
-    local maps = config.current.ui.mappings
+    local maps = mappings()
     local buf = state.bufnr
+
     local function bind(key, rhs, desc)
         vim.keymap.set("n", key, rhs, { buffer = buf, silent = true, nowait = true, desc = "MasonScout: " .. desc })
+    end
+
+    -- Block keys that would leave normal mode, so the UI stays in normal mode only.
+    for _, key in ipairs({ "i", "a", "A", "I", "o", "O", "s", "S", "c", "C", "gi", "v", "V", "<C-v>" }) do
+        bind(key, "<Nop>", "block input mode")
     end
 
     bind(maps.up, function() move(-1) end, "move cursor up")
@@ -637,6 +663,7 @@ local function setup_mappings()
     bind(maps.prev_match, function() jump_match(-1) end, "previous search match")
     bind("<Esc>", clear_search, "clear search")
 
+
     if not state.single_tab then
         for i = 1, #state.tab_order do
             bind(tostring(i), function() switch_tab(i) end, "switch to tab " .. i)
@@ -647,34 +674,46 @@ end
 --- Register autocmds for the UI window: VimResized to redraw, WinClosed to cleanup.
 local function register_autocmds()
     local group = api.nvim_create_augroup(AUGROUP_NAME, { clear = true })
+    local winid = state.winid
+
     api.nvim_create_autocmd("VimResized", { group = group, callback = resize })
+
     -- Reset state if the window is closed by something other than us (:q, etc).
+    -- The cleanup is scheduled, so only run it if no newer UI replaced this one.
     api.nvim_create_autocmd("WinClosed", {
         group = group,
-        pattern = tostring(state.winid),
+        pattern = tostring(winid),
         once = true,
-        callback = vim.schedule_wrap(close_view),
+        callback = vim.schedule_wrap(function()
+            if state.winid == winid then
+                close_view()
+            end
+        end),
     })
 end
 
 --- Open the UI window with grouped tabs.
 --- Creates the buffer and window, registers keymaps and autocmds, then renders.
 ---@param title string title shown in the window header
----@param grouped table<string, Tab> tabs keyed by category name
----@param order string[] category display order
----@param single_tab boolean whether only one tab is shown (no tab switching)
+---@param tabs table<string, Tab> tabs keyed by category name
+---@param tab_order string[] category display order (non-empty)
+---@param single_tab boolean|nil whether only one tab is shown (no tab switching)
 ---@param initial_tab string|nil category to focus first (falls back to first tab)
-local function open_window(title, grouped, order, single_tab, initial_tab)
+---@param handlers Handlers|nil callback handlers (on_install, on_suppress)
+local function open_window(title, tabs, tab_order, single_tab, initial_tab, handlers)
     close_view()
 
-    state.single_tab = single_tab
-    state.title = title
-    state.tabs = grouped
-    state.tab_order = order
-    state.curr_tab = (initial_tab and grouped[initial_tab]) and initial_tab or order[1]
+    state.single_tab = single_tab or false
+    state.label = safe_str(title)
+    state.handlers = type(handlers) == "table" and handlers or {}
+    state.tabs = tabs
+    state.tab_order = tab_order
+    state.curr_tab = (initial_tab and tabs[initial_tab]) and initial_tab or tab_order[1]
 
-    for _, name in ipairs(order) do
-        state.max_items = math.max(state.max_items, #grouped[name].items)
+    for i = 1, #tab_order do
+        local tab = tabs[tab_order[i]]
+        state.max_items = math.max(state.max_items, #tab.items)
+        state.total_selected = state.total_selected + tab.total_selected
     end
 
     compute_layout()
@@ -695,10 +734,13 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Build an internal Tab from plain package data, deduplicating by name.
+--- Entries that are not tables or have no string name are skipped. Packages
+--- that are already installed are never pre-selected, and pre-selected ones
+--- are counted so the selection counters start correct.
 ---@param pkgs table[] list of { name, description?, installed?, selected? }
 ---@return Tab
 local function build_tab(pkgs)
-    local tab = { items = {}, selected = 0, cursor = 1, scroll = 1 }
+    local tab = { items = {}, total_selected = 0, cursor = 1, scroll = 1 }
     local seen = {}
     local item_idx = 0
     for i = 1, #pkgs do
@@ -722,12 +764,14 @@ end
 --- tab_pkgs is a table keyed by category name whose value is a list of plain
 --- package data ({ name, description, installed, selected? }). tab_order is the
 --- category display order. Only non-empty categories are shown.
----@param title string title shown in the UI header (e.g. detected language)
+---@param label string display header shown in the UI window
 ---@param tab_pkgs table<string, table[]> packages grouped by category name
 ---@param tab_order string[] category display order
----@param initial_tab string|nil category to focus first
-function M.open_tabs(title, tab_pkgs, tab_order, initial_tab)
-    if not tab_pkgs or not tab_order or #tab_order == 0 then
+---@param initial_tab? string category to focus first
+---@param handlers Handlers? callback handlers (on_install, on_suppress)
+function M.open_tabs(label, tab_pkgs, tab_order, initial_tab, handlers)
+    if type(tab_pkgs) ~= "table" or type(tab_order) ~= "table" then
+        error("tab_pkgs and tab_order must be tables")
         return
     end
 
@@ -748,7 +792,7 @@ function M.open_tabs(title, tab_pkgs, tab_order, initial_tab)
         return
     end
 
-    open_window(title, grouped, order, false, initial_tab)
+    open_window(label, grouped, order, false, initial_tab, handlers)
 end
 
 return M
