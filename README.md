@@ -1,44 +1,50 @@
-# mason-suggest
+# mason-scout
 
-> Automatically suggest missing Mason.nvim packages (LSP servers, formatters, linters) based on the buffer's filetype.
-
-`mason-suggest` is a lightweight Neovim plugin that detects when a buffer is missing a language tool and opens a Mason.nvim UI tab to install it. It runs detection lazily with debouncing, so it won't block your editing.
+Suggest missing Mason.nvim packages (LSP servers, formatters, linters) based on the buffer's filetype. Runs detection lazily with debouncing so it won't block your editing.
 
 ## Features
 
-- **LSP suggestion** — when opening a file or changing filetype, suggests an LSP server if no client is attached
-- **Formatter suggestion** — before saving, suggests a formatter if none is configured
-- **Linter suggestion** — after saving, suggests a linter if none is configured
-- **Debounced detection** — duplicate triggers for the same buffer + category within 100ms are merged into one run
-- **Fuzzy matching** — matches filetypes against Mason package languages with subsequence scoring
-- **Tabbed UI** — packages grouped into LSP / Linter / Formatter / DAP tabs (from Mason.nvim)
-- **Install from UI** — select packages with `<Space>`, install all selected with `<CR>`
-- **Exclusions** — ignore specific filetypes and buftypes (TelescopePrompt, NvimTree, help, terminal, etc.)
+- **LSP suggestion** — suggests an LSP server when no client is attached
+- **Formatter suggestion** — suggests a formatter before saving if none is configured
+- **Linter suggestion** — suggests a linter after saving if none is configured
+- **Debounced detection** — rapid triggers for the same buffer are merged into one run
+- **Fuzzy matching** — matches filetypes against Mason package languages
+- **Tabbed UI** — packages grouped into LSP / Formatter / Linter tabs
+- **Exclusions** — ignore specific filetypes and buftypes
 
 ## Requirements
 
-- Neovim >= 0.10.0
-- [mason.nvim](https://github.com/mason-org/mason.nvim) >= 2.0.0
+- Neovim >= 0.10
+- [mason.nvim](https://github.com/mason-org/mason.nvim) (installed separately, see below)
 
 ## Installation
 
 ### lazy.nvim
 
+Load `mason.nvim` separately so it stays lazy (only loads when you actually run a Mason command):
+
 ```lua
 {
-  dir = "/home/stilux/.config/nvim/lua/plugs/mason-suggest",
-  main = "mason-suggest",
-  dependencies = { "mason-org/mason.nvim" },
+  dir = "/home/stilux/.config/nvim/lua/plugs/mason-scout",
   lazy = false,
-  cmd = { "MasonSuggest" },
-  opts = { },
-}
+  cmd = { "MasonScoutResetSuppression" },
+  opts = {},
+},
+
+-- Mason.nvim is a separate plugin — lazy-load it via its commands
+{
+  "mason-org/mason.nvim",
+  lazy = true,
+  opts = {},
+},
 ```
+
+Keeping `mason.nvim` as its own lazy plugin means it isn't loaded at startup just because `mason-scout` is present — it only loads when you invoke a `:Mason*` command.
 
 ### Manual
 
 ```lua
-require("mason-suggest").setup()
+require("mason-scout").setup()
 ```
 
 ## Usage
@@ -46,7 +52,7 @@ require("mason-suggest").setup()
 ### Setup
 
 ```lua
-local ms = require("mason-suggest")
+local ms = require("mason-scout")
 
 ms.setup({
   ui = {
@@ -54,121 +60,47 @@ ms.setup({
     width = 80,
     height = 20,
     title = "Mason",
-    mappings = {
-      next_category = "<CR>",
-      toggle = "<Space>",
-      select_all = "a",
-      deselect_all = "A",
-      skip = "s",
-      close = "q",
-      up = "k",
-      down = "j",
-    },
   },
   excluded = {
     filetypes = { "TelescopePrompt", "NvimTree", "help", "terminal" },
     buftypes = { "nofile", "nowrite", "quickfix", "terminal", "prompt" },
   },
-  detection = {},
+  detection = {
+    LSP = true,
+    Formatter = true,
+    Linter = true,
+  },
 })
 ```
 
-Or with defaults:
-
-```lua
-require("mason-suggest").setup()
-```
+Call `require("mason-scout").setup()` with no arguments to use defaults.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `:MasonSuggest` | Open the Mason suggest UI |
+| `:MasonScoutResetSuppression` | Reset suppressed package hints |
 
-### Keymaps (inside the suggest UI)
+### Keymaps (inside the UI)
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Move cursor down / up |
+| `j` / `k` | Move down / up |
 | `<Space>` | Toggle selection on current item |
-| `a` | Select all items in current tab |
-| `A` | Deselect all items in current tab |
+| `a` | Select all in current tab |
+| `A` | Deselect all in current tab |
 | `s` | Skip current item |
 | `q` | Close the UI |
-| `<CR>` | Install all selected items across all tabs |
-| `1`/`2`/`3`/`4` | Switch to LSP / Linter / Formatter / DAP tab |
+| `<CR>` | Install all selected items |
+| `1`/`2`/`3` | Switch to LSP / Formatter / Linter tab |
 
-The UI opens on the first tab that has packages (LSP → Formatter → Linter → DAP). You can switch between tabs freely with the number keys.
+### Configuration reference
 
-## How It Works
 
-### Detection Flow
 
-1. **Trigger** — an autocmd fires (`BufReadPost`, `BufNewFile`, `FileType` for LSP; `BufWritePre` for formatter; `BufWritePost` for linter)
-2. **Shared debounce** — `detector.detect_all()` uses a `pending` table keyed by buffer number (not category). Any trigger for the same buffer within 100ms is merged into a single run — so `BufWritePre` and `BufWritePost` fire in quick succession, only one UI opens
-3. **Skip checks** — each category's skip callback runs first (e.g., "is there already an LSP client?"). Skipped categories don't touch the registry
-4. **Language detection** — `detect_langs(bufnr)` reads `vim.bo.filetype` and `vim.filetype.match({filename=...})` to build a list of language keywords
-5. **Registry lookup** — all non-skipped categories are checked against Mason's package index
-6. **UI** — if any packages are found, `ui.open_tabs()` opens once with all packages grouped into LSP / Formatter / Linter tabs
+## How it works
 
-### Module Overview
-
-| Module | Responsibility |
-|--------|---------------|
-| `init.lua` | Public API (`setup`, `config`), autocmd registration |
-| `config.lua` | Defaults, deep-merge, exclusion checks |
-| `detector.lua` | Debounced detection across all categories, language extraction, skip callbacks |
-| `mason.lua` | Package index, fuzzy matching, registry filtering, installation |
-| `ui.lua` | Tabbed floating window UI, selection, install flow |
-| `logger.lua` | `vim.notify` wrapper with `MasonSuggest` title |
-
-### Why match by filename?
-
-`detect_langs` checks both `vim.bo.filetype` **and** `vim.filetype.match({ filename = name })` because:
-
-- `filetype` can be empty (`""`) for new/unsaved buffers or when detection hasn't fired yet
-- Filename matching is a direct extension/name lookup that doesn't depend on Neovim's filetype state
-
-If `filetype` is already populated, the filename match usually returns the same result — it's a safety net for edge cases like `Makefile`, `Dockerfile`, or files without extensions.
-
-## Configuration Reference
-
-### `config.ui`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `border` | string | `"rounded"` | Floating window border style |
-| `width` | integer | `80` | Window width |
-| `height` | integer | `20` | Window height |
-| `title` | string | `"Mason"` | Window title |
-| `mappings` | table | see below | Key mappings inside the UI |
-
-### `config.excluded`
-
-| Field | Type | Default |
-|-------|------|---------|
-| `filetypes` | string[] | `{ "TelescopePrompt", "NvimTree", "help", "terminal" }` |
-| `buftypes` | string[] | `{ "nofile", "nowrite", "quickfix", "terminal", "prompt" }` |
-
-### `config.detection`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `LSP` | boolean | `true` | Auto-trigger suggest on `BufReadPost`/`BufNewFile`/`FileType` (LSP category) |
-| `Formatter` | boolean | `true` | Auto-trigger suggest on `BufWritePre` (Formatter category) |
-| `Linter` | boolean | `true` | Auto-trigger suggest on `BufWritePost` (Linter category) |
-
-Set any category to `false` to disable auto-trigger for it. Set all to `false` (or `{}`) to disable auto-trigger entirely.
-
-## Development
-
-The plugin is located at `lua/plugs/mason-suggest/lua/mason-suggest/`. All modules use `---@` annotations for [LuaLS](https://luals.github.io/) type checking.
-
-Run a syntax check:
-
-```sh
-nvim --headless -c "lua dofile('lua/plugs/mason-suggest/lua/mason-suggest/detector.lua')" -c "qa"
-```
+An autocmd fires on buffer events (`BufReadPost`, `BufNewFile`, `FileType`, `BufWritePre`, `BufWritePost`). Detection is debounced per buffer (50ms) so quick successive events run once. It checks whether a language tool is already configured, looks up missing Mason packages for the buffer's filetype, and opens a tabbed UI to install them.
 
 ## License
 

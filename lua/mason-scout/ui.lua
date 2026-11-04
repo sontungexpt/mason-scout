@@ -55,44 +55,46 @@ local AUGROUP_NAME = "MasonSuggestUI"
 ---@field cursor integer                1-based index into items
 ---@field scroll integer                1-based index of first visible item
 
----@class TabState
----@field bufnr integer|nil
----@field winid integer|nil
----@field tabs table<string, Tab>
----@field tab_order string[]
----@field current string
----@field title string        -- language or label shown in the window header
----@field unique boolean
----@field max_items integer
----@field width integer
----@field height integer
----@field rows integer      visible item rows
----@field header string
----@field divider string
----@field help string[]
----@field total_selected integer  total selected items across all tabs
+---@class UIState
+---@field tabs table<string, Tab>    tabs data by name
+---@field tab_order string[]         tab names in display order
+---@field curr_tab string            currently active tab name
+---@field single_tab boolean         whether only one tab is shown (no tab switching)
+---@field max_items integer          max number of items across all tabs (for layout)
+---@field total_selected integer     total selected items across all tabs
+---
+---@field bufnr integer|nil          the UI buffer handle, or nil when closed
+---@field winid integer|nil          the UI window handle, or nil when closed
+---@field width integer              window width in columns
+---@field height integer             window height in rows
+---@field title string               language or label shown in the window header
+---@field rows integer               visible item rows (excludes header/footer)
+---@field header string              header line shown above the tab bar
+---@field divider string             divider line shown before the help footer
+---@field help string[]              wrapped keymap help lines shown at the bottom
 
 ---@class Handlers
 ---@field on_install? fun(pkgs: string[])
 ---@field on_suppress? fun(cat: string, kw: string)
 
---- Create a fresh empty TabState.
----@return TabState a new state with empty tabs and zeroed counters
+--- Create a fresh empty UIState.
+---@return UIState a new state with empty tabs and zeroed counters
 local function new_state()
     return {
         tabs = {},
         tab_order = {},
-        current = nil,
-        title = "",
-        unique = false,
+        single_tab = false,
+        curr_tab = nil,
         max_items = 0,
+        total_selected = 0,
+
         width = 80,
         height = 20,
+        title = "",
         rows = 1,
         header = "",
         divider = "",
         help = {},
-        total_selected = 0,
     }
 end
 
@@ -167,8 +169,8 @@ end
 
 --- Get the currently active tab.
 ---@return Tab the currently selected tab object
-local function cur_tab()
-    return state.tabs[state.current]
+local function curr_tab()
+    return state.tabs[state.curr_tab]
 end
 
 -- ---------------------------------------------------------------------------
@@ -177,12 +179,11 @@ end
 
 --- Build the keymap help footer lines, greedily wrapped to fit within width.
 ---@param width integer maximum display width per line
----@param current string current category name
+---@param tab_name string current category name
 ---@param title string current keyword/title
 ---@return string[] wrapped help lines
-local function build_help(width, current, title)
+local function build_help(width, tab_name, title)
     local maps = config.current.ui.mappings
-    local suppress_label = ("%s never suggest %s again for %s"):format(maps.suppress, current, title)
 
     local main_chunks = {
         string.format("%s/%s move", maps.up, maps.down),
@@ -206,6 +207,7 @@ local function build_help(width, current, title)
         lines[#lines + 1] = cur
     end
 
+    local suppress_label = ("%s never suggest %s again for %s"):format(maps.suppress, tab_name, title)
     -- Suppress gets its own dedicated line so its descriptive text is always visible.
     lines[#lines + 1] = "  " .. suppress_label
     return lines
@@ -216,7 +218,7 @@ end
 --- Called once on open and on VimResized.
 local function compute_layout()
     local ui = config.current.ui or {}
-    local unique = state.unique
+    local single_tab = state.single_tab
 
     local width = math.max(math.min(ui.width or 80, vim.o.columns - 8), 20)
     state.width = width
@@ -225,12 +227,12 @@ local function compute_layout()
         safe_str("MasonScout | " .. (state.title or "")),
         width
     )
-    state.help = build_help(width, state.current, state.title)
+    state.help = build_help(width, state.curr_tab, state.title)
 
     -- header + "Selected" line + divider + help
     local chrome = HEADER_LINES + 2 + #state.help
-    local min_h = unique and 10 or 12
-    local max_h = unique and 20 or 24
+    local min_h = single_tab and 10 or 12
+    local max_h = single_tab and 20 or 24
     local height = math.min(math.max(state.max_items + chrome, min_h), max_h, vim.o.lines - 4)
     height = math.max(height, chrome + 1)
 
@@ -270,15 +272,15 @@ local function render_row(active, item)
 end
 
 --- Build the tab bar string showing all category tabs.
---- Active tab is shown in brackets; others are plain. Returns just the name in unique mode.
+--- Active tab is shown in brackets; others are plain. Returns just the name in single-tab mode.
 ---@return string formatted tab bar string
 local function tab_bar()
-    if state.unique then
-        return "  " .. state.current
+    if state.single_tab then
+        return "  " .. state.curr_tab
     end
 
     local order = state.tab_order
-    local current = state.current
+    local current = state.curr_tab
     local n = #order
     if n == 1 then
         local name = order[1]
@@ -303,7 +305,7 @@ local function render()
         return
     end
 
-    local tab = cur_tab()
+    local tab = curr_tab()
     local items = tab.items
     local rows = state.rows
     local bufnr = state.bufnr
@@ -334,7 +336,7 @@ local function render()
         lines[n] = "" -- pad so the footer stays pinned to the bottom
     end
 
-    if state.unique then
+    if state.single_tab then
         n = n + 1
         lines[n] = "  Selected: " .. tab.selected .. "/" .. #items
     else
@@ -388,7 +390,7 @@ end
 --- Delegates to the caller's on_suppress handler; the UI knows nothing about
 --- suppression logic. Then closes the UI.
 local function suppress()
-    local cat = state.current
+    local cat = state.curr_tab
     local keyword = state.title
     if not cat or not keyword or keyword == "" then
         return
@@ -417,7 +419,7 @@ end
 ---@param item TabItem
 ---@param value boolean
 ---@return boolean changed
-local function set_selected(tab, item, value)
+local function set_item_selected(tab, item, value)
     if item.installed or item.selected == value then
         return false
     end
@@ -430,9 +432,9 @@ end
 --- Toggle selection on the item under the cursor in the current tab.
 --- Re-renders only if the selection actually changed.
 ---@param tab Tab the tab whose cursor item should be toggled
-local function toggle_cursor_item(tab)
+local function toggle_cursor_item_selected(tab)
     local item = tab.items[tab.cursor]
-    if item and set_selected(tab, item, not item.selected) then
+    if item and set_item_selected(tab, item, not item.selected) then
         render()
     end
 end
@@ -441,23 +443,16 @@ end
 --- Re-renders only if at least one item changed.
 ---@param value boolean true to select all, false to deselect all
 ---@param tab Tab the tab to operate on
-local function set_all(value, tab)
+local function set_all_items_selected(value, tab)
     local changed = false
     for _, item in ipairs(tab.items) do
-        if set_selected(tab, item, value) then
+        if set_item_selected(tab, item, value) then
             changed = true
         end
     end
     if changed then
         render()
     end
-end
-
---- Deselect all items in the current tab.
---- Delegates to set_all with false; re-renders only if something changed.
----@param tab Tab the tab to reset
-local function reset_items(tab)
-    set_all(false, tab)
 end
 
 --- Collect all selected packages across tabs and invoke the on_install handler.
@@ -493,12 +488,12 @@ end
 local function switch_tab(n)
     local order = state.tab_order
     local name = order[n]
-    local current = state.current
+    local current = state.curr_tab
     if not name or name == current then
         return
     end
-    state.current = name
-    local tab = cur_tab()
+    state.curr_tab = name
+    local tab = curr_tab()
     tab.cursor = math.min(math.max(tab.cursor, 1), #tab.items)
     tab.scroll = 1
     render()
@@ -517,17 +512,17 @@ local function setup_mappings()
         vim.keymap.set("n", key, fn, { buffer = buf, silent = true, nowait = true, desc = "MasonScout: " .. desc })
     end
 
-    bind(maps.up, function() move(-1, cur_tab()) end, "move cursor up")
-    bind(maps.down, function() move(1, cur_tab()) end, "move cursor down")
-    bind(maps.toggle, function() toggle_cursor_item(cur_tab()) end, "toggle selection")
-    bind(maps.reset, function() reset_items(cur_tab()) end, "reset selection")
+    bind(maps.up, function() move(-1, curr_tab()) end, "move cursor up")
+    bind(maps.down, function() move(1, curr_tab()) end, "move cursor down")
+    bind(maps.toggle, function() toggle_cursor_item_selected(curr_tab()) end, "toggle selection")
+    bind(maps.reset, function() set_all_items_selected(false, curr_tab()) end, "reset selection")
     bind(maps.install, install_selected, "install selected")
     bind(maps.close, close_view, "close")
 
     -- "Never suggest" action: suppress the current category-keyword pair.
     bind(maps.suppress, suppress, "Never suggest this category/keyword automatically")
 
-    if not state.unique then
+    if not state.single_tab then
         for i = 1, #state.tab_order do
             local idx = i
             bind(tostring(idx), function() switch_tab(idx) end, "switch to tab " .. idx)
@@ -604,19 +599,19 @@ end
 ---@param title string title shown in the window header
 ---@param grouped table<string, Tab> tabs keyed by category name
 ---@param order string[] category display order
----@param unique boolean whether this is a unique (single-shot) session
+---@param single_tab boolean whether only one tab is shown (no tab switching)
 ---@param initial_category string|nil category to focus first
-local function open_window(title, grouped, order, unique, initial_category)
+local function open_window(title, grouped, order, single_tab, initial_category)
     close_view()
 
-    state.unique = unique
+    state.single_tab = single_tab
     state.title = title
     state.tabs = grouped
     state.tab_order = order
     if initial_category and grouped[initial_category] then
-        state.current = initial_category
+        state.curr_tab = initial_category
     else
-        state.current = order[1]
+        state.curr_tab = order[1]
     end
     for _, name in ipairs(order) do
         state.max_items = math.max(state.max_items, #grouped[name].items)

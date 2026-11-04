@@ -4,12 +4,12 @@
 
 local M = {}
 
----@class MasonSuggestConfig
----@type MasonSuggestConfig
+---@class Config
+---@type Config
 local config = {
   ui = {
     border = "rounded",
-    width = 80,
+    width = 100,
     height = 20,
     title = "Mason",
     mappings = {
@@ -42,7 +42,7 @@ M.current = setmetatable({}, {
   end,
 })
 
----@param opts? MasonSuggestConfig
+---@param opts? Config
 M.merge = function(opts)
   if opts then
     config = vim.tbl_deep_extend("force", config, opts)
