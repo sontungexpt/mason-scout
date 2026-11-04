@@ -20,6 +20,9 @@ local config = {
       close = "q",
       up = "k",
       down = "j",
+      search = "/",
+      next_match = "n",
+      prev_match = "N",
     },
   },
   excluded = {

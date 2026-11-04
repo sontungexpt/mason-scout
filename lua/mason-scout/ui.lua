@@ -31,6 +31,10 @@
 --   q           Close the UI
 --   <CR>        Install all selected items across all tabs
 --   1/2/3/4     Switch to tab by index
+--   /           Fuzzy-search items in current tab (prompts for input)
+--   n           Jump to next search match
+--   N           Jump to previous search match
+--   <Esc>       Clear search
 
 local M = {}
 
@@ -62,6 +66,9 @@ local AUGROUP_NAME = "MasonSuggestUI"
 ---@field single_tab boolean         whether only one tab is shown (no tab switching)
 ---@field max_items integer          max number of items across all tabs (for layout)
 ---@field total_selected integer     total selected items across all tabs
+---@field search_pattern string      current fuzzy search pattern (empty when not searching)
+---@field search_matches integer[]   indices of matching items in current tab
+---@field search_idx integer         position within search_matches (0 = none active)
 ---
 ---@field bufnr integer|nil          the UI buffer handle, or nil when closed
 ---@field winid integer|nil          the UI window handle, or nil when closed
@@ -95,6 +102,10 @@ local function new_state()
         header = "",
         divider = "",
         help = {},
+
+        search_pattern = "",
+        search_matches = {},
+        search_idx = 0,
     }
 end
 
@@ -191,6 +202,7 @@ local function build_help(width, tab_name, title)
         string.format("%s reset", maps.reset),
         string.format("%s install", maps.install),
         string.format("%s close", maps.close),
+        string.format("%s search", maps.search),
     }
 
     local lines, cur = {}, ""
@@ -414,6 +426,103 @@ local function move(delta, tab)
     render()
 end
 
+-- ---------------------------------------------------------------------------
+-- Search
+-- ---------------------------------------------------------------------------
+
+--- Compute which item indices in a tab fuzzy-match the given pattern.
+---@param tab Tab the tab to search within
+---@param pattern string non-empty search pattern (already lowercased)
+---@return integer[] indices of matching items, in tab order
+local function compute_matches(tab, pattern)
+    local matches = {}
+    if pattern == "" or #tab.items == 0 then
+        return matches
+    end
+    local count = 0
+
+    -- Lazy require to avoid loading util unnecessarily
+    local util = require("mason-scout.util")
+    for i = 1, #tab.items do
+        local name = tab.items[i].name:lower()
+        if util.fuzzy_match(name, pattern) then
+            count = count + 1
+            matches[count] = i
+        end
+    end
+
+    return matches
+end
+
+--- Start a fuzzy search for the current pattern in the current tab.
+--- Reads the pattern from the search register ("/") and jumps to the first match.
+---@param pattern string the search pattern (already lowercased)
+local function start_search(pattern)
+    local tab = curr_tab()
+    if not tab then
+        return
+    end
+    state.search_pattern = pattern
+    state.search_matches = compute_matches(tab, pattern)
+    state.search_idx = 0
+    if #state.search_matches > 0 then
+        state.search_idx = 1
+        tab.cursor = state.search_matches[1]
+    end
+    render()
+end
+
+--- Jump to the next search match in the current tab.
+--- Wraps around to the first match when past the last.
+local function search_next()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = state.search_idx % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Jump to the previous search match in the current tab.
+--- Wraps around to the last match when before the first.
+local function search_prev()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = (state.search_idx - 2) % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Clear the current search and restore the cursor position.
+local function clear_search()
+    state.search_pattern = ""
+    state.search_matches = {}
+    state.search_idx = 0
+    render()
+end
+
+--- Prompt the user for a search pattern and start fuzzy search in the current tab.
+--- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
+local function prompt_search()
+    vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
+        if input == nil then
+            return -- user cancelled
+        end
+        local pattern = input:lower()
+        if pattern == "" then
+            clear_search()
+            return
+        end
+        -- Also record the pattern in the search register so vim.fn.getreg("/")
+        -- reflects the current search.
+        fn.setreg("/", input)
+        start_search(pattern)
+    end)
+end
+
 --- Set an item's selected flag, keeping counters in sync.
 ---@param tab Tab
 ---@param item TabItem
@@ -493,7 +602,19 @@ local function switch_tab(n)
         return
     end
     state.curr_tab = name
+    -- Keep the same search pattern but recompute matches for the new tab.
     local tab = curr_tab()
+    if state.search_pattern ~= "" then
+        state.search_matches = compute_matches(tab, state.search_pattern)
+        state.search_idx = 0
+        if #state.search_matches > 0 then
+            state.search_idx = 1
+            tab.cursor = state.search_matches[1]
+        end
+    else
+        state.search_matches = {}
+        state.search_idx = 0
+    end
     tab.cursor = math.min(math.max(tab.cursor, 1), #tab.items)
     tab.scroll = 1
     render()
@@ -521,6 +642,12 @@ local function setup_mappings()
 
     -- "Never suggest" action: suppress the current category-keyword pair.
     bind(maps.suppress, suppress, "Never suggest this category/keyword automatically")
+
+    -- Search: / opens a prompt; n/N jump to next/previous match; <Esc> clears.
+    bind(maps.search, prompt_search, "search items")
+    bind(maps.next_match, search_next, "next search match")
+    bind(maps.prev_match, search_prev, "previous search match")
+    bind("<Esc>", clear_search, "clear search")
 
     if not state.single_tab then
         for i = 1, #state.tab_order do
@@ -650,5 +777,7 @@ function M.open_tabs(title, tools, initial_category)
     end
     open_window(title, grouped, order, false, initial_category)
 end
+
+M.group_into_tabs = group_into_tabs
 
 return M

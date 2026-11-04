@@ -11,7 +11,6 @@ local M = {}
 local DATA_DIR = vim.fn.stdpath("data") .. "/mason-scout"
 local FILE_PATH = DATA_DIR .. "/suppressed.json"
 
-
 ---@alias State table<string, table<string, boolean>>
 
 local load
