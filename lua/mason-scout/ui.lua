@@ -112,13 +112,67 @@ end
 local state = new_state()
 
 -- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
+
+--- Check if the UI window is valid and open.
+---@return boolean true if the window exists and is valid
+local function win_valid()
+    return state.winid ~= nil and api.nvim_win_is_valid(state.winid)
+end
+
+--- Replace newlines so a value is safe to show on one line.
+---@param s string|nil
+---@return string
+local function safe_str(s)
+    local out = (s or ""):gsub("[\n\r]", " ")
+    return out
+end
+
+--- Truncate a string to a display width, appending an ellipsis when cut.
+--- Uses a fast path for pure-ASCII strings (byte length == display width)
+--- to avoid the relatively expensive vim.fn.strdisplaywidth call.
+---@param s string the string to truncate
+---@param width integer maximum display width
+---@return string the (possibly truncated) string
+local function fit(s, width)
+    -- Fast path: ASCII-only strings have display width == byte length.
+    if not s:find("[\128-\255]") then
+        local len = #s
+        if len <= width then
+            return s
+        end
+        return s:sub(1, width - 1) .. "…"
+    end
+    local w = fn.strdisplaywidth(s)
+    if w <= width then
+        return s
+    end
+    return fn.strcharpart(s, 0, width - 1) .. "…"
+end
+
+--- Wrap a 1-based index into the range [1, n].
+---@param idx integer index to wrap (can be out of bounds)
+---@param n integer upper bound (number of items)
+---@return integer wrapped 1-based index within [1, n]
+local function wrap(idx, n)
+    return ((idx - 1) % n) + 1
+end
+
+--- Get the currently active tab.
+---@return Tab the currently selected tab object
+local function curr_tab()
+    return state.tabs[state.curr_tab]
+end
+
+-- ---------------------------------------------------------------------------
 -- Building tabs
 -- ---------------------------------------------------------------------------
 
 --- Create a new empty tab object.
 ---@return Tab a new tab with empty items, dedupe set, and zeroed counters
 local function new_tab()
-    return { items = {}, names = {}, selected = 0, cursor = 1, scroll = 1 }
+    return { items = {}, names = {}, selected = 0, cursor = 1, scroll = 1, haystack = nil }
 end
 
 --- Append a tool to a tab unless a tool with that name is already there.
@@ -180,60 +234,6 @@ local handlers = {
 --- @param handler function event handler
 M.on_event = function(event, handler)
     handlers[event] = handler
-end
-
--- ---------------------------------------------------------------------------
--- Helpers
--- ---------------------------------------------------------------------------
-
---- Check if the UI window is valid and open.
----@return boolean true if the window exists and is valid
-local function win_valid()
-    return state.winid ~= nil and api.nvim_win_is_valid(state.winid)
-end
-
---- Replace newlines so a value is safe to show on one line.
----@param s string|nil
----@return string
-local function safe_str(s)
-    local out = (s or ""):gsub("[\n\r]", " ")
-    return out
-end
-
---- Truncate a string to a display width, appending an ellipsis when cut.
---- Uses a fast path for pure-ASCII strings (byte length == display width)
---- to avoid the relatively expensive vim.fn.strdisplaywidth call.
----@param s string the string to truncate
----@param width integer maximum display width
----@return string the (possibly truncated) string
-local function fit(s, width)
-    -- Fast path: ASCII-only strings have display width == byte length.
-    if not s:find("[\128-\255]") then
-        local len = #s
-        if len <= width then
-            return s
-        end
-        return s:sub(1, width - 1) .. "…"
-    end
-    local w = fn.strdisplaywidth(s)
-    if w <= width then
-        return s
-    end
-    return fn.strcharpart(s, 0, width - 1) .. "…"
-end
-
---- Wrap a 1-based index into the range [1, n].
----@param idx integer index to wrap (can be out of bounds)
----@param n integer upper bound (number of items)
----@return integer wrapped 1-based index within [1, n]
-local function wrap(idx, n)
-    return ((idx - 1) % n) + 1
-end
-
---- Get the currently active tab.
----@return Tab the currently selected tab object
-local function curr_tab()
-    return state.tabs[state.curr_tab]
 end
 
 -- ---------------------------------------------------------------------------
@@ -447,6 +447,111 @@ local function resize()
 end
 
 -- ---------------------------------------------------------------------------
+-- Search
+-- ---------------------------------------------------------------------------
+
+--- Compute which item indices in a tab fuzzy-match the given pattern.
+--- Uses vim.fn.matchfuzzy(), so scattered matches are found too. Matching is
+--- case-insensitive. Results are best relevance first.
+---@param tab Tab the tab to search within
+---@param pattern string search pattern
+---@return integer[] indices of matching items, best relevance first
+local function compute_matches(tab, pattern)
+    local items = tab.items
+    local n = #items
+    if pattern == "" or n == 0 then
+        return {}
+    end
+
+    -- Item names are immutable, so build the haystack once per tab.
+    local haystack = tab.haystack
+    if not haystack then
+        haystack = {}
+        for i = 1, n do
+            haystack[i] = { name = items[i].name, idx = i }
+        end
+        tab.haystack = haystack
+    end
+
+    local hits = vim.fn.matchfuzzy(haystack, pattern, { key = "name" })
+
+    local matches = {}
+    for i = 1, #hits do
+        matches[i] = hits[i].idx
+    end
+    return matches
+end
+
+--- Start a fuzzy search for the current pattern in the current tab.
+--- Reads the pattern from the search register ("/") and jumps to the first match.
+---@param pattern string the search pattern (already lowercased)
+local function start_search(pattern)
+    local tab = curr_tab()
+    if not tab then
+        return
+    end
+    state.search_pattern = pattern
+    state.search_matches = compute_matches(tab, pattern)
+    state.search_idx = 0
+    if #state.search_matches > 0 then
+        state.search_idx = 1
+        tab.cursor = state.search_matches[1]
+    end
+    render()
+end
+
+--- Jump to the next search match in the current tab.
+--- Wraps around to the first match when past the last.
+local function search_next()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = state.search_idx % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Jump to the previous search match in the current tab.
+--- Wraps around to the last match when before the first.
+local function search_prev()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = (state.search_idx - 2) % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Clear the current search and restore the cursor position.
+local function clear_search()
+    state.search_pattern = ""
+    state.search_matches = {}
+    state.search_idx = 0
+    render()
+end
+
+--- Prompt the user for a search pattern and start fuzzy search in the current tab.
+--- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
+local function prompt_search()
+    vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
+        if input == nil then
+            return -- user cancelled
+        end
+        local pattern = input:lower()
+        if pattern == "" then
+            clear_search()
+            return
+        end
+        -- Also record the pattern in the search register so vim.fn.getreg("/")
+        -- reflects the current search.
+        fn.setreg("/", input)
+        start_search(pattern)
+    end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Actions
 -- ---------------------------------------------------------------------------
 
@@ -578,103 +683,6 @@ end
 
 
 -- ---------------------------------------------------------------------------
--- Search
--- ---------------------------------------------------------------------------
-
---- Compute which item indices in a tab fuzzy-match the given pattern.
----@param tab Tab the tab to search within
----@param pattern string non-empty search pattern (already lowercased)
----@return integer[] indices of matching items, in tab order
-local function compute_matches(tab, pattern)
-    local matches = {}
-    if pattern == "" or #tab.items == 0 then
-        return matches
-    end
-    local count = 0
-
-    -- Lazy require to avoid loading util unnecessarily
-    local util = require("mason-scout.util")
-    for i = 1, #tab.items do
-        local name = tab.items[i].name:lower()
-        if util.fuzzy_match(name, pattern) > 0 then
-            count = count + 1
-            matches[count] = i
-        end
-    end
-
-    return matches
-end
-
---- Start a fuzzy search for the current pattern in the current tab.
---- Reads the pattern from the search register ("/") and jumps to the first match.
----@param pattern string the search pattern (already lowercased)
-local function start_search(pattern)
-    local tab = curr_tab()
-    if not tab then
-        return
-    end
-    state.search_pattern = pattern
-    state.search_matches = compute_matches(tab, pattern)
-    state.search_idx = 0
-    if #state.search_matches > 0 then
-        state.search_idx = 1
-        tab.cursor = state.search_matches[1]
-    end
-    render()
-end
-
---- Jump to the next search match in the current tab.
---- Wraps around to the first match when past the last.
-local function search_next()
-    local tab = curr_tab()
-    if not tab or #state.search_matches == 0 then
-        return
-    end
-    state.search_idx = state.search_idx % #state.search_matches + 1
-    tab.cursor = state.search_matches[state.search_idx]
-    render()
-end
-
---- Jump to the previous search match in the current tab.
---- Wraps around to the last match when before the first.
-local function search_prev()
-    local tab = curr_tab()
-    if not tab or #state.search_matches == 0 then
-        return
-    end
-    state.search_idx = (state.search_idx - 2) % #state.search_matches + 1
-    tab.cursor = state.search_matches[state.search_idx]
-    render()
-end
-
---- Clear the current search and restore the cursor position.
-local function clear_search()
-    state.search_pattern = ""
-    state.search_matches = {}
-    state.search_idx = 0
-    render()
-end
-
---- Prompt the user for a search pattern and start fuzzy search in the current tab.
---- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
-local function prompt_search()
-    vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
-        if input == nil then
-            return -- user cancelled
-        end
-        local pattern = input:lower()
-        if pattern == "" then
-            clear_search()
-            return
-        end
-        -- Also record the pattern in the search register so vim.fn.getreg("/")
-        -- reflects the current search.
-        fn.setreg("/", input)
-        start_search(pattern)
-    end)
-end
-
--- ---------------------------------------------------------------------------
 -- Mappings / autocmds
 -- ---------------------------------------------------------------------------
 
@@ -693,8 +701,6 @@ local function setup_mappings()
     bind(maps.reset, function() set_all_items_selected(false, curr_tab()) end, "reset selection")
     bind(maps.install, install_selected, "install selected")
     bind(maps.close, close_view, "close")
-
-    -- "Never suggest" action: suppress the current category-keyword pair.
     bind(maps.suppress, suppress, "Never suggest this category/keyword automatically")
 
     -- Search: / opens a prompt; n/N jump to next/previous match; <Esc> clears.
@@ -780,6 +786,5 @@ function M.open_tabs(title, tools, initial_category)
     open_window(title, grouped, order, false, initial_category)
 end
 
-M.group_into_tabs = group_into_tabs
 
 return M
