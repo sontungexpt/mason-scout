@@ -130,7 +130,7 @@ M.tools_by_keywords = function(keywords, opts)
                     local text, best = spec.name:lower(), nil
                     for k = 1, nf do
                         local s = util.fuzzy_match(text, fuzzy[k])
-                        if s and (not best or s > best) then
+                        if s > 0 and (not best or s > best) then
                             best = s
                         end
                     end

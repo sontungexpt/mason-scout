@@ -111,7 +111,59 @@ end
 
 local state = new_state()
 
---- Module-level callback handlers. Registered once via M.set_handlers();
+-- ---------------------------------------------------------------------------
+-- Building tabs
+-- ---------------------------------------------------------------------------
+
+--- Create a new empty tab object.
+---@return Tab a new tab with empty items, dedupe set, and zeroed counters
+local function new_tab()
+    return { items = {}, names = {}, selected = 0, cursor = 1, scroll = 1 }
+end
+
+--- Append a tool to a tab unless a tool with that name is already there.
+--- Dedupe is by name so the same package never appears twice in one tab.
+---@param tab Tab target tab to append into
+---@param tool Tool { name, spec, installed } the tool to add
+local function push(tab, tool)
+    if tab.names[tool.name] then
+        return
+    end
+    tab.names[tool.name] = true
+    tab.items[#tab.items + 1] = {
+        name = safe_str(tool.name),
+        description = safe_str((tool.spec and tool.spec.description) or tool.name),
+        installed = tool.installed or false,
+        selected = false,
+    }
+end
+
+--- Group tools into tabs based on their primary category.
+--- Only categories that have at least one tool are included.
+--- Tabs are ordered in discovery order (first-seen category first).
+--- Tools are placed under their primary category (spec.categories[1]).
+---@param tools Tool[] flat list of { name, spec, installed } entries
+---@return table<string, Tab> grouped tabs keyed by category name
+---@return string[] order category names in discovery order
+local function group_into_tabs(tools)
+    local grouped = {}
+    local order = {}
+
+    -- Group tools by their primary category, remembering discovery order
+    for _, tool in ipairs(tools) do
+        local cat = (tool.spec and tool.spec.categories and tool.spec.categories[1]) or "LSP"
+        if not grouped[cat] then
+            grouped[cat] = new_tab()
+            order[#order + 1] = cat
+        end
+        push(grouped[cat], tool)
+    end
+
+    return grouped, order
+end
+
+
+-- Module-level callback handlers. Registered once via M.set_handlers();
 -- read by install_selected() and suppress_current() instead of being passed
 -- through open_tabs().
 local handlers = {
@@ -123,7 +175,7 @@ local handlers = {
     end,
 }
 
---- Register callback handlers at module level.
+-- Register callback handlers at module level.
 --- @param event string event name
 --- @param handler function event handler
 M.on_event = function(event, handler)
@@ -267,6 +319,7 @@ local function win_config()
         border = ui.border or "rounded",
     }
 end
+
 
 -- ---------------------------------------------------------------------------
 -- Rendering
@@ -426,103 +479,6 @@ local function move(delta, tab)
     render()
 end
 
--- ---------------------------------------------------------------------------
--- Search
--- ---------------------------------------------------------------------------
-
---- Compute which item indices in a tab fuzzy-match the given pattern.
----@param tab Tab the tab to search within
----@param pattern string non-empty search pattern (already lowercased)
----@return integer[] indices of matching items, in tab order
-local function compute_matches(tab, pattern)
-    local matches = {}
-    if pattern == "" or #tab.items == 0 then
-        return matches
-    end
-    local count = 0
-
-    -- Lazy require to avoid loading util unnecessarily
-    local util = require("mason-scout.util")
-    for i = 1, #tab.items do
-        local name = tab.items[i].name:lower()
-        if util.fuzzy_match(name, pattern) then
-            count = count + 1
-            matches[count] = i
-        end
-    end
-
-    return matches
-end
-
---- Start a fuzzy search for the current pattern in the current tab.
---- Reads the pattern from the search register ("/") and jumps to the first match.
----@param pattern string the search pattern (already lowercased)
-local function start_search(pattern)
-    local tab = curr_tab()
-    if not tab then
-        return
-    end
-    state.search_pattern = pattern
-    state.search_matches = compute_matches(tab, pattern)
-    state.search_idx = 0
-    if #state.search_matches > 0 then
-        state.search_idx = 1
-        tab.cursor = state.search_matches[1]
-    end
-    render()
-end
-
---- Jump to the next search match in the current tab.
---- Wraps around to the first match when past the last.
-local function search_next()
-    local tab = curr_tab()
-    if not tab or #state.search_matches == 0 then
-        return
-    end
-    state.search_idx = state.search_idx % #state.search_matches + 1
-    tab.cursor = state.search_matches[state.search_idx]
-    render()
-end
-
---- Jump to the previous search match in the current tab.
---- Wraps around to the last match when before the first.
-local function search_prev()
-    local tab = curr_tab()
-    if not tab or #state.search_matches == 0 then
-        return
-    end
-    state.search_idx = (state.search_idx - 2) % #state.search_matches + 1
-    tab.cursor = state.search_matches[state.search_idx]
-    render()
-end
-
---- Clear the current search and restore the cursor position.
-local function clear_search()
-    state.search_pattern = ""
-    state.search_matches = {}
-    state.search_idx = 0
-    render()
-end
-
---- Prompt the user for a search pattern and start fuzzy search in the current tab.
---- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
-local function prompt_search()
-    vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
-        if input == nil then
-            return -- user cancelled
-        end
-        local pattern = input:lower()
-        if pattern == "" then
-            clear_search()
-            return
-        end
-        -- Also record the pattern in the search register so vim.fn.getreg("/")
-        -- reflects the current search.
-        fn.setreg("/", input)
-        start_search(pattern)
-    end)
-end
-
 --- Set an item's selected flag, keeping counters in sync.
 ---@param tab Tab
 ---@param item TabItem
@@ -620,6 +576,104 @@ local function switch_tab(n)
     render()
 end
 
+
+-- ---------------------------------------------------------------------------
+-- Search
+-- ---------------------------------------------------------------------------
+
+--- Compute which item indices in a tab fuzzy-match the given pattern.
+---@param tab Tab the tab to search within
+---@param pattern string non-empty search pattern (already lowercased)
+---@return integer[] indices of matching items, in tab order
+local function compute_matches(tab, pattern)
+    local matches = {}
+    if pattern == "" or #tab.items == 0 then
+        return matches
+    end
+    local count = 0
+
+    -- Lazy require to avoid loading util unnecessarily
+    local util = require("mason-scout.util")
+    for i = 1, #tab.items do
+        local name = tab.items[i].name:lower()
+        if util.fuzzy_match(name, pattern) > 0 then
+            count = count + 1
+            matches[count] = i
+        end
+    end
+
+    return matches
+end
+
+--- Start a fuzzy search for the current pattern in the current tab.
+--- Reads the pattern from the search register ("/") and jumps to the first match.
+---@param pattern string the search pattern (already lowercased)
+local function start_search(pattern)
+    local tab = curr_tab()
+    if not tab then
+        return
+    end
+    state.search_pattern = pattern
+    state.search_matches = compute_matches(tab, pattern)
+    state.search_idx = 0
+    if #state.search_matches > 0 then
+        state.search_idx = 1
+        tab.cursor = state.search_matches[1]
+    end
+    render()
+end
+
+--- Jump to the next search match in the current tab.
+--- Wraps around to the first match when past the last.
+local function search_next()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = state.search_idx % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Jump to the previous search match in the current tab.
+--- Wraps around to the last match when before the first.
+local function search_prev()
+    local tab = curr_tab()
+    if not tab or #state.search_matches == 0 then
+        return
+    end
+    state.search_idx = (state.search_idx - 2) % #state.search_matches + 1
+    tab.cursor = state.search_matches[state.search_idx]
+    render()
+end
+
+--- Clear the current search and restore the cursor position.
+local function clear_search()
+    state.search_pattern = ""
+    state.search_matches = {}
+    state.search_idx = 0
+    render()
+end
+
+--- Prompt the user for a search pattern and start fuzzy search in the current tab.
+--- Records the pattern in the search register ("/") so vim.fn.getreg("/") reflects it.
+local function prompt_search()
+    vim.ui.input({ prompt = "Search: ", default = "" }, function(input)
+        if input == nil then
+            return -- user cancelled
+        end
+        local pattern = input:lower()
+        if pattern == "" then
+            clear_search()
+            return
+        end
+        -- Also record the pattern in the search register so vim.fn.getreg("/")
+        -- reflects the current search.
+        fn.setreg("/", input)
+        start_search(pattern)
+    end)
+end
+
 -- ---------------------------------------------------------------------------
 -- Mappings / autocmds
 -- ---------------------------------------------------------------------------
@@ -670,57 +724,6 @@ local function register_autocmds()
     })
 end
 
--- ---------------------------------------------------------------------------
--- Building tabs
--- ---------------------------------------------------------------------------
-
---- Create a new empty tab object.
----@return Tab a new tab with empty items, dedupe set, and zeroed counters
-local function new_tab()
-    return { items = {}, names = {}, selected = 0, cursor = 1, scroll = 1 }
-end
-
---- Append a tool to a tab unless a tool with that name is already there.
---- Dedupe is by name so the same package never appears twice in one tab.
----@param tab Tab target tab to append into
----@param tool Tool { name, spec, installed } the tool to add
-local function push(tab, tool)
-    if tab.names[tool.name] then
-        return
-    end
-    tab.names[tool.name] = true
-    tab.items[#tab.items + 1] = {
-        name = safe_str(tool.name),
-        description = safe_str((tool.spec and tool.spec.description) or tool.name),
-        installed = tool.installed or false,
-        selected = false,
-    }
-end
-
---- Group tools into tabs based on their primary category.
---- Only categories that have at least one tool are included.
---- Tabs are ordered in discovery order (first-seen category first).
---- Tools are placed under their primary category (spec.categories[1]).
----@param tools Tool[] flat list of { name, spec, installed } entries
----@return table<string, Tab> grouped tabs keyed by category name
----@return string[] order category names in discovery order
-local function group_into_tabs(tools)
-    local grouped = {}
-    local order = {}
-
-    -- Group tools by their primary category, remembering discovery order
-    for _, tool in ipairs(tools) do
-        local cat = (tool.spec and tool.spec.categories and tool.spec.categories[1]) or "LSP"
-        if not grouped[cat] then
-            grouped[cat] = new_tab()
-            order[#order + 1] = cat
-        end
-        push(grouped[cat], tool)
-    end
-
-    return grouped, order
-end
-
 --- Open the UI window with grouped tabs.
 --- Creates the buffer and window, registers keymaps and autocmds, then renders.
 ---@param title string title shown in the window header
@@ -760,7 +763,6 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API
 -- ---------------------------------------------------------------------------
-
 
 --- Open packages grouped into tabs by category.
 --- Creates the UI window and renders all non-empty tabs.
