@@ -9,12 +9,12 @@ function M.setup(opts)
         config.merge(opts)
     end
 
-    vim.api.nvim_create_user_command("MasonScoutResetSuppression", function()
-        local ok, err = require("mason-scout.suppression").reset()
-        if not ok then
-            vim.notify(("Failed to reset Mason Scout suppression: %s"):format(err), vim.log.levels.ERROR)
-        end
-    end, {})
+    -- vim.api.nvim_create_user_command("MasonScoutResetSuppression", function()
+    --     local ok, err = require("mason-scout.suppression").reset()
+    --     if not ok then
+    --         vim.notify(("Failed to reset Mason Scout suppression: %s"):format(err), vim.log.levels.ERROR)
+    --     end
+    -- end, {})
 
     --- In-flight runs, keyed by bufnr.
     ---@type table<integer, boolean>
