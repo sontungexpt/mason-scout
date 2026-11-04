@@ -1,28 +1,42 @@
 -- lua/mason-scout/suppression.lua
 --
 -- Persistent, category-specific suppression of automatic suggestions.
--- Suppressing (category, keyword) stops automatic suggestions for that
--- combination only; other categories and other keywords are unaffected.
--- Manual API calls and the UI are never suppressed.
+--
+-- Suppressing a (category, keyword) pair stops automatic suggestions for that
+-- combination only; other categories and other keywords are unaffected. Manual
+-- API calls and the UI are never suppressed.
+--
 -- Category names are not validated; any string can be used as a category.
+-- Keywords are stored raw (case-sensitive, no normalization).
+--
+-- Data is persisted to disk as JSON in the Neovim data directory under
+-- ``mason-scout/suppressed.json``. Writes are atomic (temp file + rename).
 
 local M = {}
 
 local DATA_DIR = vim.fn.stdpath("data") .. "/mason-scout"
 local FILE_PATH = DATA_DIR .. "/suppressed.json"
 
----@alias State table<string, table<string, boolean>>
+--- Suppression rules: category -> set of suppressed keywords.
+---
+--- Each inner table maps suppressed keywords to ``true``. Absence of a
+--- category (or a keyword within one) means suggestions are not suppressed.
+---@class SuppressionRules
+---@field [string] table<string, boolean>
 
 local load
 local save
 
---- Whether the in-memory state differs from what's persisted.
+--- Whether the in-memory state differs from what is persisted to disk.
+---@type boolean
 local dirty = false
 
---- In-memory suppression state: category -> { keyword -> true }.
---- Keywords are stored raw (case-sensitive, no normalization).
----@type State?
+--- In-memory suppression state, lazily loaded from disk.
+--- Accessing a missing category auto-creates an empty inner table.
+---@type SuppressionRules?
 local state
+--- Ensure in-memory state is loaded, then return it.
+---@return SuppressionRules
 local state_or_load = function()
     if not state then
         local disk = load()
@@ -38,7 +52,10 @@ local state_or_load = function()
 end
 
 --- Return a read-only view of the suppression state.
----@return State
+---
+--- Mutating the returned table (or its nested tables) is not prevented at the
+--- Luau level; callers should treat it as immutable.
+---@return SuppressionRules
 M.state = function()
     return setmetatable({}, {
         __index = state_or_load(),
@@ -49,8 +66,11 @@ M.state = function()
 end
 
 --- Load suppression data from disk.
---- Handles missing files and malformed JSON gracefully.
----@return State loaded
+---
+--- Handles missing files, empty files, and malformed JSON gracefully by
+--- returning an empty map. Only string categories mapping to tables of
+--- string -> true entries are accepted.
+---@return SuppressionRules
 load = function()
     local fd = vim.uv.fs_open(FILE_PATH, "r", 438)
     if not fd then
@@ -89,8 +109,9 @@ load = function()
 end
 
 --- Persist the current suppression state to disk.
---- Writes to a temp file then renames for atomicity.
---- Creates the parent directory if needed.
+---
+--- Writes to a temp file then renames for atomicity. Creates the parent
+--- directory if needed. No-op when there is nothing dirty to save.
 save = function()
     if not state or not dirty then
         return
@@ -128,7 +149,11 @@ vim.api.nvim_create_autocmd("VimLeave", {
 })
 
 --- Remove the suppression data file from disk and reset in-memory state.
---- After calling this, no category-keyword pairs are suppressed.
+---
+--- After calling this, no category-keyword pairs are suppressed. Returns
+--- ``false`` plus the error message on unexpected unlink failures.
+---@return boolean ok true on success
+---@return string? err error message on failure, nil on success
 M.reset = function()
     local ok, err = vim.uv.fs_unlink(FILE_PATH)
     if not ok and err and not err:match("ENOENT") then
@@ -139,6 +164,11 @@ M.reset = function()
     return true
 end
 
+--- Validate a category-keyword pair.
+---
+--- Raises an error (level 2) if either argument is not a non-empty string.
+---@param category string category name
+---@param keyword string language keyword
 local validate = function(category, keyword)
     if type(category) ~= "string" or category == "" then
         error(("mason-scout.suppress: invalid category %q"):format(tostring(category)), 2)
@@ -149,7 +179,10 @@ local validate = function(category, keyword)
 end
 
 --- Suppress automatic suggestions for a category-keyword pair.
---- Any category name is accepted; no validation is performed.
+---
+--- Any non-empty category name and keyword are accepted; no further
+--- validation is performed. Calling this on an already-suppressed pair is a
+--- no-op (aside from re-validating the inputs).
 ---@param category string category name (e.g. "LSP", "Formatter", "DAP")
 ---@param keyword string language keyword (e.g. "lua", "python")
 M.suppress = function(category, keyword)
@@ -162,6 +195,9 @@ M.suppress = function(category, keyword)
 end
 
 --- Unsuppress a category-keyword pair, restoring automatic suggestions.
+---
+--- Calling this on a pair that is not suppressed is a no-op. Removing the last
+--- keyword from a category also removes the now-empty category entry.
 ---@param category string category name
 ---@param keyword string language keyword
 M.unsuppress = function(category, keyword)
@@ -180,7 +216,9 @@ end
 
 
 --- Check whether a category-keyword pair is suppressed.
---- Returns false for invalid inputs (no error raised).
+---
+--- Returns ``false`` for invalid inputs (empty or non-string values) without
+--- raising an error.
 ---@param category string category name
 ---@param keyword string language keyword
 ---@return boolean true if suppressed
@@ -192,15 +230,12 @@ M.is_suppressed = function(category, keyword)
     end
 
     local s = state_or_load()
-    --- Rawget to avoid auto create an empty table for a category
+    -- Rawget to avoid auto-creating an empty table for a missing category.
     local cat_state = rawget(s, category)
     if not cat_state then
         return false
     end
     return cat_state[keyword] == true
 end
-
-
-
-
 return M
+

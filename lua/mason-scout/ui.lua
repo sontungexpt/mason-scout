@@ -13,7 +13,7 @@
 --   * open_tabs(title, tab_pkgs, tab_order, initial_tab, handlers)
 --       Open all non-empty tabs grouped by package category.
 --       title       — string shown in the window header (e.g. detected language)
---       tab_pkgs    — table<category, { name, description?, installed?, selected? }[]>
+--       tab_pkgs    — table<category, Package[]> packages grouped by category name
 --       tab_order   — category display order; empty categories are skipped
 --       initial_tab — optional category to focus first ("LSP", "Linter", ...)
 --       handlers    — optional callbacks (missing ones are simply not called):
@@ -210,9 +210,8 @@ end
 --- Build the keymap help footer lines, greedily wrapped to fit within width.
 ---@param width integer maximum display width per line
 ---@param tab_name string|nil current category name
----@param label string|nil current label (shown in suppress hint)
 ---@return string[] wrapped help lines
-local function build_help(width, tab_name, label)
+local function build_help(width, tab_name)
     local maps = mappings()
 
     local main_chunks = {
@@ -238,7 +237,7 @@ local function build_help(width, tab_name, label)
     end
 
     -- Suppress gets its own dedicated line so its descriptive text is always visible.
-    lines[#lines + 1] = ("  %s never suggest %s again for %s"):format(maps.suppress, tab_name, label)
+    lines[#lines + 1] = ("  %s never suggest %s again"):format(maps.suppress, tab_name)
     return lines
 end
 
@@ -251,8 +250,8 @@ local function compute_layout()
     local width = math.max(math.min(ui_cfg().width or 100, vim.o.columns - 6), 20)
     state.width = width
     state.divider = string.rep("─", width)
-    state.header = fit(safe_str("MasonScout | " .. state.label), width)
-    state.help = build_help(width, state.curr_tab, state.label)
+    state.header = fit(safe_str(state.label), width)
+    state.help = build_help(width, state.curr_tab)
 
     -- header + "Selected" line + divider + help
     local chrome = HEADER_LINES + 2 + #state.help
@@ -649,6 +648,8 @@ local function setup_mappings()
         bind(key, "<Nop>", "block input mode")
     end
 
+    bind("<Up>", function() move(-1) end, "move cursor up")
+    bind("<Down>", function() move(1) end, "move cursor down")
     bind(maps.up, function() move(-1) end, "move cursor up")
     bind(maps.down, function() move(1) end, "move cursor down")
     bind(maps.toggle, toggle_cursor_item_selected, "toggle selection")
@@ -661,7 +662,7 @@ local function setup_mappings()
     bind(maps.search, prompt_search, "search items")
     bind(maps.next_match, function() jump_match(1) end, "next search match")
     bind(maps.prev_match, function() jump_match(-1) end, "previous search match")
-    bind("<Esc>", clear_search, "clear search")
+    bind(maps.clear_search, clear_search, "clear search")
 
 
     if not state.single_tab then
@@ -694,17 +695,17 @@ end
 
 --- Open the UI window with grouped tabs.
 --- Creates the buffer and window, registers keymaps and autocmds, then renders.
----@param title string title shown in the window header
+---@param label string title shown in the window header
 ---@param tabs table<string, Tab> tabs keyed by category name
 ---@param tab_order string[] category display order (non-empty)
 ---@param single_tab boolean|nil whether only one tab is shown (no tab switching)
 ---@param initial_tab string|nil category to focus first (falls back to first tab)
 ---@param handlers Handlers|nil callback handlers (on_install, on_suppress)
-local function open_window(title, tabs, tab_order, single_tab, initial_tab, handlers)
+local function open_window(label, tabs, tab_order, single_tab, initial_tab, handlers)
     close_view()
 
     state.single_tab = single_tab or false
-    state.label = safe_str(title)
+    state.label = label
     state.handlers = type(handlers) == "table" and handlers or {}
     state.tabs = tabs
     state.tab_order = tab_order
@@ -737,7 +738,7 @@ end
 --- Entries that are not tables or have no string name are skipped. Packages
 --- that are already installed are never pre-selected, and pre-selected ones
 --- are counted so the selection counters start correct.
----@param pkgs table[] list of { name, description?, installed?, selected? }
+---@param pkgs TabItem[] list of { name, description?, installed?, selected? }
 ---@return Tab
 local function build_tab(pkgs)
     local tab = { items = {}, total_selected = 0, cursor = 1, scroll = 1 }
@@ -765,7 +766,7 @@ end
 --- package data ({ name, description, installed, selected? }). tab_order is the
 --- category display order. Only non-empty categories are shown.
 ---@param label string display header shown in the UI window
----@param tab_pkgs table<string, table[]> packages grouped by category name
+---@param tab_pkgs table<string, TabItem[]> packages grouped by category name
 ---@param tab_order string[] category display order
 ---@param initial_tab? string category to focus first
 ---@param handlers Handlers? callback handlers (on_install, on_suppress)
