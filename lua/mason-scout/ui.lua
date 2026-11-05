@@ -130,14 +130,14 @@ local function win_valid()
 end
 
 --- UI section of the plugin config (never nil, even before setup()).
----@return table
+---@return ConfigUI
 local function ui_cfg()
     local cur = config.current
     return type(cur.ui) == "table" and cur.ui or {}
 end
 
 --- Keymap table from the config (never nil).
----@return table<string, string|nil>
+---@return ConfigUIMappings
 local function mappings()
     local maps = ui_cfg().mappings
     return type(maps) == "table" and maps or {}
