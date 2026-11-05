@@ -39,7 +39,7 @@ Hope you will like this plugin and find it useful!
 ```lua
 --- You should split like this in lazy.nvim because we don't want to load mason.nvim until it's actually needed
 {
-  dir = "sontungexpt/mason-scout",
+  "sontungexpt/mason-scout",
   lazy = false,
   cmd = { "MasonScout", "MasonScoutResetSuppression" },
   opts = {},
@@ -53,7 +53,7 @@ Hope you will like this plugin and find it useful!
 
 --- If you do like this, mason.nvim is always loaded, even if mason-scout don't really need it immediately
 {
-  dir = "/home/stilux/.config/nvim/lua/plugs/mason-scout",
+  "sontungexpt/mason-scout",
   dependencies = { "mason-org/mason.nvim" },
   lazy = false,
   cmd = { "MasonScoutResetSuppression" },
