@@ -18,34 +18,48 @@ local FORCED_EXCLUDED = {
     },
 }
 
+---@class ConfigUIMappings
+---@field install string Keymap name for installing a suggestion.
+---@field toggle string Keymap name for toggling a suggestion.
+---@field reset string Keymap name for resetting the UI.
+---@field suppress string Keymap name for suppressing suggestions.
+---@field close string Keymap name for closing the UI.
+---@field up string Keymap name for moving up in the UI.
+---@field down string Keymap name for moving down in the UI.
+---@field mason  string Keymap name for opening Mason UI.
+---@field search string Keymap name for searching in the UI.
+---@field next_match string Keymap name for moving to the next match in the UI.
+---@field prev_match string Keymap name for moving to the previous match in the UI.
+---@field clear_search string Keymap name for clearing the search query in the UI.
+
 --- UI window and keymap configuration.
----@class MasonScoutUIConfig
+---@class ConfigUI
 ---@field border string|table Nvim window border style (e.g. "rounded", "single", or border table).
 ---@field width integer   Window width in columns.
 ---@field height integer    Window height in rows.
 ---@field title string      Window title text.
----@field mappings table<string,string> Keymap name -> keybinding for the UI buffer.
+---@field mappings ConfigUIMappings Keymap name -> keybinding for the UI buffer.
 
 --- User-excluded filetypes and buftypes (in addition to FORCED_EXCLUDED).
----@class MasonScoutExcludedConfig
+---@class ConfigExcluded
 ---@field filetypes string[] Filetype names to ignore.
 ---@field buftypes string[]  Buftype names to ignore.
 
 --- Automatic detection toggles per category.
----@class MasonScoutDetectionConfig
+---@class ConfigDetection
 ---@field LSP      boolean Whether to suggest missing LSP servers.
 ---@field Formatter boolean Whether to suggest missing formatters.
 ---@field Linter   boolean Whether to suggest missing linters.
 ---@field DAP      boolean Whether to suggest missing debug adapters.
 
 --- Full Mason Scout configuration.
----@class MasonScoutConfig
----@field ui         MasonScoutUIConfig
----@field excluded   MasonScoutExcludedConfig
----@field detection  MasonScoutDetectionConfig
+---@class Config
+---@field ui         ConfigUI
+---@field excluded   ConfigExcluded
+---@field detection  ConfigDetection
 
 --- Live configuration (merged defaults + user overrides).
----@type MasonScoutConfig
+---@type Config
 local config = {
     ui = {
         border = "rounded",
@@ -60,6 +74,7 @@ local config = {
             close = "q",
             up = "k",
             down = "j",
+            mason = "m",
             search = "/",
             next_match = "n",
             prev_match = "N",
@@ -92,7 +107,7 @@ M.current = setmetatable({}, {
 -- Replaces the internal config table with a deep-merged copy, so references
 -- captured before the merge (e.g. ``M.current``'s metatable target) are
 -- automatically reflected.
----@param opts? MasonScoutConfig User configuration to merge in.
+---@param opts? Config User configuration to merge in.
 M.merge = function(opts)
     if opts then
         config = vim.tbl_deep_extend("force", config, opts)

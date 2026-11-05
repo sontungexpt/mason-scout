@@ -78,10 +78,7 @@ require("mason-scout").setup({
             close = "q",
             up = "k",
             down = "j",
-            search = "/",
-            next_match = "n",
-            prev_match = "N",
-            clear_search = "<Esc>",
+            mason = "<leader>m",
         },
     },
     excluded = {

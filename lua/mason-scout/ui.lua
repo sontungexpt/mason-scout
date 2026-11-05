@@ -238,6 +238,7 @@ local function build_help(width, tab_name)
 
     -- Suppress gets its own dedicated line so its descriptive text is always visible.
     lines[#lines + 1] = ("  %s never suggest %s again"):format(maps.suppress, tab_name)
+    lines[#lines + 1] = ("  %s open Mason UI to explore packages more deeply"):format(maps.mason)
     return lines
 end
 
@@ -628,6 +629,12 @@ local function switch_tab(n)
     render()
 end
 
+--- Close the scout UI and open Mason's package manager UI.
+local function open_mason_ui()
+    close_view()
+    require("mason.ui").open()
+end
+
 -- ---------------------------------------------------------------------------
 -- Mappings / autocmds
 -- ---------------------------------------------------------------------------
@@ -640,6 +647,10 @@ local function setup_mappings()
     local buf = state.bufnr
 
     local function bind(key, rhs, desc)
+        -- Skip unconfigured keys (nil or empty) so missing mappings don't break setup.
+        if not key or key == "" then
+            return
+        end
         vim.keymap.set("n", key, rhs, { buffer = buf, silent = true, nowait = true, desc = "MasonScout: " .. desc })
     end
 
@@ -657,6 +668,7 @@ local function setup_mappings()
     bind(maps.install, install_selected, "install selected")
     bind(maps.close, close_view, "close")
     bind(maps.suppress, suppress, "Never suggest this category/keyword automatically")
+    bind(maps.mason, open_mason_ui, "open Mason UI")
 
     -- Search: / opens a prompt; n/N jump to next/previous match; <Esc> clears.
     bind(maps.search, prompt_search, "search items")

@@ -24,7 +24,7 @@ end
 --- A package can belong to many categories, so it is added under every
 --- category it declares. Only categories that have at least one tool are
 --- included. Tabs are ordered in discovery order (first-seen category first).
----@param tools Tool[] flat list of { name, spec, installed, score }
+---@param tools Tool[] flat list of { name, spec, installed }
 ---@param n integer|nil number of tools to group (default: all)
 ---@return table<string, TabItem[]> tab_pkgs packages grouped by category name
 ---@return string[] order category names in discovery order
