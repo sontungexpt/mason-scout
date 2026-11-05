@@ -19,7 +19,7 @@
         "/home/stilux/.local/share/nvim/lazy/lazy.nvim/lua/lazy",
         "/home/stilux/.config/nvim/lua/plugs/mason-scout/lua"
       ],
-      "maxPreload": 100000,
+      "maxPreload": 10000,
       "preloadFileSize": 10000,
       "checkThirdParty": false
     },
