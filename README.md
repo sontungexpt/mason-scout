@@ -94,14 +94,17 @@ require("mason-scout").setup({
 })
 ```
 
+mason-scout watches buffers and opens the UI automatically when it finds a missing tool for an enabled category. You can also open it manually.
+
 ### Commands
 
-| Command                       | Description                      |
-| ----------------------------- | -------------------------------- |
-| `:MasonScoutResetSuppression` | Reset all suppressed suggestions |
-| `:MasonScout`           | Open the UI                    |
+| Command                      | Description                            |
+| ---------------------------- | -------------------------------------- |
+| `:MasonScout`                | Open the UI for the current buffer     |
+| `:MasonScout ui`             | Same as above                          |
+| `:MasonScout unsuppress-all` | Show every suppressed suggestion again |
 
-### Configuration reference
+Subcommands support `<Tab>` completion.
 
 ## License
 

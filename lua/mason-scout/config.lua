@@ -1,22 +1,5 @@
 local M = {}
 
---- Buffers/filetypes that are always ignored, regardless of user config.
---- These are special-purpose buffers where Mason Scout should never run.
-local FORCED_EXCLUDED = {
-    filetypes = {
-        TelescopePrompt = true,
-        NvimTree = true,
-        help = true,
-        terminal = true,
-    },
-    buftypes = {
-        nofile = true,
-        nowrite = true,
-        quickfix = true,
-        terminal = true,
-        prompt = true,
-    },
-}
 
 ---@class ConfigUIMappings
 ---@field install string Keymap name for installing a suggestion.
@@ -114,6 +97,24 @@ M.merge = function(opts)
     end
 end
 
+--- Buffers/filetypes that are always ignored, regardless of user config.
+--- These are special-purpose buffers where Mason Scout should never run.
+local FORCED_EXCLUDED = {
+    filetypes = {
+        TelescopePrompt = true,
+        NvimTree = true,
+        help = true,
+        terminal = true,
+    },
+    buftypes = {
+        nofile = true,
+        nowrite = true,
+        quickfix = true,
+        terminal = true,
+        prompt = true,
+    },
+}
+
 --- Check if a buffer should be ignored based on excluded filetypes/buftypes.
 ---
 -- Returns true for buffers with forced-excluded filetypes or buftypes
@@ -125,13 +126,13 @@ M.should_ignore = function(bufnr)
     local excluded = config.excluded
     if not excluded then return false end
 
-    local bo = vim.bo[bufnr]
-    local bt = bo.buftype
+    local opts = { buf = bufnr }
+    local bt = vim.api.nvim_get_option_value("buftype", opts)
     if FORCED_EXCLUDED.buftypes[bt] then
         return true
     end
 
-    local ft = bo.filetype
+    local ft = vim.api.nvim_get_option_value("filetype", opts)
     if FORCED_EXCLUDED.filetypes[ft] then
         return true
     end
