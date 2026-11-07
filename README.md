@@ -2,7 +2,7 @@
 
 Suggest missing Mason.nvim packages to install based on the current buffer's filetype.
 
-https://github.com/user-attachments/assets/17f5f39a-9a40-4706-ab14-97dfcdbddda1
+https://github.com/user-attachments/assets/427638b0-260b-47a2-bf77-5fdd8ecb5ef9
 
 ## Features
 
