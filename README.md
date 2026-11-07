@@ -41,7 +41,7 @@ Hope you will like this plugin and find it useful!
 {
   "sontungexpt/mason-scout",
   lazy = false,
-  cmd = { "MasonScout", "MasonScoutResetSuppression" },
+  cmd = { "MasonScout" },
   opts = {},
 },
 
@@ -56,7 +56,7 @@ Hope you will like this plugin and find it useful!
   "sontungexpt/mason-scout",
   dependencies = { "mason-org/mason.nvim" },
   lazy = false,
-  cmd = { "MasonScoutResetSuppression" },
+  cmd = { "MasonScout" },
   opts = {},
 },
 ```
