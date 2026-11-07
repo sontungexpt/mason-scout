@@ -215,12 +215,12 @@ local function build_help(width, tab_name)
     local maps = mappings()
 
     local main_chunks = {
-        string.format("%s/%s move", maps.up, maps.down),
-        string.format("%s toggle", maps.toggle),
-        string.format("%s reset", maps.reset),
-        string.format("%s install", maps.install),
-        string.format("%s close", maps.close),
-        string.format("%s search", maps.search),
+        string.format("%s/%s: Move", maps.up, maps.down),
+        string.format("%s: Toggle", maps.toggle),
+        string.format("%s: Reset", maps.reset),
+        string.format("%s: Install", maps.install),
+        string.format("%s: Close", maps.close),
+        string.format("%s: Search", maps.search),
     }
 
     local lines, cur = {}, ""
@@ -237,8 +237,8 @@ local function build_help(width, tab_name)
     end
 
     -- Suppress gets its own dedicated line so its descriptive text is always visible.
-    lines[#lines + 1] = ("  %s never suggest %s again"):format(maps.suppress, tab_name)
-    lines[#lines + 1] = ("  %s open Mason UI to explore packages more deeply"):format(maps.mason)
+    lines[#lines + 1] = ("  %s: Never suggest %s again"):format(maps.suppress, tab_name)
+    lines[#lines + 1] = ("  %s: Open Mason UI to explore packages more deeply"):format(maps.mason)
     return lines
 end
 
