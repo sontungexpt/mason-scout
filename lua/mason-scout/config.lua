@@ -2,7 +2,8 @@ local M = {}
 
 
 ---@class ConfigUIMappings
----@field install string Keymap name for installing a suggestion.
+---@field install_selected string Keymap name for installing a suggestion.
+---@field uninstall string Keymap name for installing a suggestion.
 ---@field toggle string Keymap name for toggling a suggestion.
 ---@field reset string Keymap name for resetting the UI.
 ---@field suppress string Keymap name for suppressing suggestions.
@@ -52,7 +53,8 @@ local config = {
         height = 20,
         title = "Mason",
         mappings = {
-            install = "<CR>",
+            install_selected = "<CR>",
+            uninstall = "X",
             toggle = "<Space>",
             reset = "R",
             suppress = "S",

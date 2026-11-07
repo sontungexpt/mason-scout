@@ -46,8 +46,9 @@ local AUGROUP_NAME = "MasonScout_UI"
 ---@field haystack? table[]
 
 ---@class Handlers
----@field on_install? fun(pkgs: string[])
----@field on_suppress? fun(tab_name: string)
+---@field on_install_selected? fun(pkgs: string[])
+---@field on_uninstall? fun(pkg_name: string)
+---@field on_uninstall? fun(pkg_name: string, on_complete: fun(success: boolean))
 
 ---@class UIState
 ---@field tabs table<string, Tab>
@@ -424,7 +425,8 @@ local function build_help(width, tab_name)
         maps.up .. "/" .. maps.down .. ": Move",
         maps.toggle .. ": Toggle",
         maps.reset .. ": Reset",
-        maps.install .. ": Install",
+        maps.install_selected .. ": Install selected",
+        maps.uninstall .. ": Uninstall",
         maps.close .. ": Close",
         maps.search .. ": Search",
         maps.suppress .. ": Never suggest " .. safe_str(tab_name or "category"),
@@ -955,6 +957,38 @@ local function set_all_items_selected(value)
     end
 end
 
+--- Uninstall the currently selected package if it is installed.
+local function uninstall_cursor_item()
+    local tab = curr_tab()
+    if not tab then
+        return
+    end
+
+    local item = tab.items[tab.cursor]
+    if not item or not item.installed then
+        return
+    end
+
+    local handler = state.handlers.on_uninstall
+    if type(handler) ~= "function" then
+        return
+    end
+
+    local pkg_name = item.name
+
+    handler(pkg_name, function(success)
+        if not success then
+            return
+        end
+
+        -- Refresh the installed state without closing the UI.
+        item.installed = false
+        item.selected = false
+
+        render()
+    end)
+end
+
 --- Install all selected packages across tabs.
 local function install_selected()
     if state.total_selected == 0 then
@@ -972,7 +1006,7 @@ local function install_selected()
         end
     end
 
-    local handler = state.handlers.on_install
+    local handler = state.handlers.on_install_selected
 
     close_view()
     call_handler(handler, pkgs)
@@ -1071,7 +1105,8 @@ local function setup_mappings()
         set_all_items_selected(false)
     end, "reset selection")
 
-    bind(maps.install, install_selected, "install selected")
+    bind(maps.install_selected, install_selected, "install selected")
+    bind(maps.uninstall, uninstall_cursor_item, "uninstall package")
     bind(maps.close, close_view, "close")
     bind(maps.suppress, suppress, "never suggest this category")
     bind(maps.mason, open_mason_ui, "open Mason UI")

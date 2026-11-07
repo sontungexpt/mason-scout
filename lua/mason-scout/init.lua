@@ -444,10 +444,14 @@ M.scout = function()
                                     )
                                 end,
 
-                                on_install = function(packages)
+                                on_install_selected = function(packages)
                                     require("mason-scout.mason").install_packages(
                                         packages
                                     )
+                                end,
+
+                                on_uninstall = function(pkg_name, on_complete)
+                                    require("mason-scout.mason").uninstall(pkg_name, on_complete)
                                 end,
                             }
                         )
@@ -524,10 +528,14 @@ M.open_ui = function()
                 )
             end,
 
-            on_install = function(packages)
+            on_install_selected = function(packages)
                 require("mason-scout.mason").install_packages(
                     packages
                 )
+            end,
+
+            on_uninstall = function(pkg_name, on_complete)
+                require("mason-scout.mason").uninstall(pkg_name, on_complete)
             end,
         }
     )

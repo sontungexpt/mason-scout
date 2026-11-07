@@ -159,4 +159,42 @@ M.install_packages = function(pkgs)
     end
 end
 
+---@param pkg_name string
+---@param on_complete? fun(success: boolean)
+M.uninstall = function(pkg_name, on_complete)
+    local logger = require("mason-scout.logger")
+
+    if not registry.has_package(pkg_name) then
+        logger.warn(("Package %s not found in Mason registry."):format(pkg_name))
+        if on_complete then on_complete(false) end
+        return
+    end
+
+    if not registry.is_installed(pkg_name) then
+        if on_complete then on_complete(false) end
+        return
+    end
+
+    local pkg = registry.get_package(pkg_name)
+
+    if pkg:is_uninstalling() or pkg:is_installing() then
+        if on_complete then on_complete(false) end
+        return
+    end
+
+    logger.info(("Uninstalling %s..."):format(pkg_name))
+
+    pkg:uninstall({}, vim.schedule_wrap(function(success, err)
+        if success then
+            logger.info(("%s uninstalled successfully."):format(pkg_name))
+        else
+            logger.error(("Failed to uninstall %s: %s"):format(pkg_name, tostring(err)))
+        end
+
+        if on_complete then
+            on_complete(success == true)
+        end
+    end))
+end
+
 return M
