@@ -71,14 +71,21 @@ require("mason-scout").setup({
         height = 20,
         title = "Mason",
         mappings = {
-            install = "<CR>",
+            install_selected = "<CR>",
+            uninstall = "X",
             toggle = "<Space>",
             reset = "R",
             suppress = "S",
             close = "q",
             up = "k",
             down = "j",
-            mason = "<leader>m",
+            mason = "m",
+            search = "/",
+            next_match = "n",
+            prev_match = "N",
+            clear_search = "<Esc>",
+            preview_scroll_down = "<C-d>",
+            preview_scroll_up = "<C-u>"
         },
     },
     excluded = {
@@ -86,10 +93,10 @@ require("mason-scout").setup({
         buftypes = {},
     },
     detection = {
-        LSP = true, -- auto-detect LSP servers
-        Formatter = true, -- auto-detect formatters
-        Linter = false, -- auto-detect linters
-        DAP = false, -- auto-detect DAP adapters
+        LSP = true,
+        Formatter = true,
+        Linter = false,
+        DAP = false,
     },
 })
 ```
