@@ -113,6 +113,10 @@ mason-scout watches buffers and opens the UI automatically when it finds a missi
 
 Subcommands support `<Tab>` completion.
 
+## Credits
+
+Built on top of [mason.nvim](https://github.com/mason-org/mason.nvim).
+
 ## License
 
-MIT
+[MIT](LICENSE)
