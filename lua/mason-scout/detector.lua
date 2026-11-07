@@ -1,52 +1,138 @@
 local M = {}
 
---- True when no LSP client is attached to the buffer (i.e. LSP is missing).
+--- Clients that attach through LSP but are tool wrappers, not language servers.
+--- Backstop only: they can advertise hover/codeAction, which would pass the method check.
+local NON_LANGUAGE_CLIENTS = {
+    ["null-ls"] = true,
+    ["none-ls"] = true,
+    ["efm"] = true,
+    ["diagnosticls"] = true,
+    ["copilot"] = true,
+    ["typos_lsp"] = true,
+    ["codespell"] = true,
+    ["ltex"] = true,
+    ["harper_ls"] = true,
+}
+
+--- Code-intelligence methods. Formatting/diagnostics alone don't qualify.
+local INTELLIGENCE_METHODS = {
+    "textDocument/definition",
+    "textDocument/typeDefinition",
+    "textDocument/implementation",
+    "textDocument/references",
+    "textDocument/documentSymbol",
+    "textDocument/rename",
+    "textDocument/hover",
+    "textDocument/signatureHelp",
+}
+
+--- True when no real language server is attached to the buffer.
 ---@param bufnr integer
 ---@return boolean
-M.missing_lsp = function(bufnr)
-    return #vim.lsp.get_clients({ bufnr = bufnr }) == 0
+function M.missing_lsp(bufnr)
+    bufnr = bufnr or 0
+    for _, method in ipairs(INTELLIGENCE_METHODS) do
+        for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, method = method })) do
+            if not NON_LANGUAGE_CLIENTS[client.name] then
+                return false
+            end
+        end
+    end
+    return true
 end
 
---- True when no formatter is available (conform, or an attached LSP client
---- that supports formatting) — i.e. formatter is missing.
+--- True when neither conform (if already loaded) nor an attached LSP client
+--- can format the buffer.
 ---@param bufnr integer
 ---@return boolean
-M.missing_formatter = function(bufnr)
-    --- Always check conform if it already loaded to follow lazy loading
+function M.missing_formatter(bufnr)
+    bufnr = bufnr or 0
+
     local conform = package.loaded["conform"]
-    if conform and #conform.list_formatters(bufnr) > 0 then
+    if conform then
+        for _, info in ipairs(conform.list_formatters(bufnr)) do
+            if info.available then
+                return false
+            end
+        end
+    end
+
+    return next(vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" })) == nil
+end
+
+--- Whether the executable behind an already-loaded nvim-lint linter exists.
+---@param lint table
+---@param name string
+---@return boolean
+local function linter_available(lint, name)
+    local linter = lint.linters[name]
+    if type(linter) == "function" then
+        linter = linter()
+    end
+    if type(linter) ~= "table" then
         return false
     end
 
-    return #vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" }) == 0
-end
+    local cmd = linter.cmd
+    if type(cmd) == "function" then
+        cmd = cmd()
+    end
 
---- True when no linter is configured for the filetype (nvim-lint) — i.e. linter is missing.
----@param _ integer
----@param ft string Filetype
----@return boolean
-M.missing_linter = function(ft)
-    local lint = package.loaded["lint"]
-    if not lint then
+    -- Unknown cmd shape: assume available rather than report a false negative
+    if type(cmd) ~= "string" then
         return true
     end
-    local linters = lint.linters_by_ft[ft]
-    return linters == nil or #linters == 0
+    return vim.fn.executable(cmd) == 1
 end
 
---- True when the nvim-dap plugin is not loaded or has no adapters configured
---- — i.e. DAP is missing.
----@param _ integer
+--- True when nvim-lint is not loaded or has no usable linter for the filetype.
+--- Handles compound filetypes ("html.handlebars"). "*" and "_" entries are ignored.
+---@param ft string Filetype
 ---@return boolean
-M.missing_dap = function(_)
+function M.missing_linter(ft)
+    local lint = package.loaded["lint"]
+    if not lint or not ft or ft == "" then
+        return true
+    end
+
+    local by_ft = lint.linters_by_ft
+    local names = by_ft[ft]
+    if not names then
+        names = {}
+        for _, part in ipairs(vim.split(ft, ".", { plain = true })) do
+            vim.list_extend(names, by_ft[part] or {})
+        end
+    end
+
+    for _, name in ipairs(names) do
+        if linter_available(lint, name) then
+            return false
+        end
+    end
+    return true
+end
+
+--- True when nvim-dap is not loaded or has no configuration for the buffer's
+--- filetype whose `type` has a registered adapter.
+---@param bufnr integer
+---@return boolean
+function M.missing_dap(bufnr)
     local dap = package.loaded["dap"]
     if not dap then
         return true
     end
 
-    local adapters = dap and dap.adapters
-    return adapters == nil or next(adapters) == nil
-end
+    local configs = dap.configurations[vim.bo[bufnr or 0].filetype]
+    if not configs then
+        return true
+    end
 
+    for _, config in ipairs(configs) do
+        if dap.adapters[config.type] ~= nil then
+            return false
+        end
+    end
+    return true
+end
 
 return M
