@@ -14,6 +14,8 @@ local M = {}
 ---@field next_match string Keymap name for moving to the next match in the UI.
 ---@field prev_match string Keymap name for moving to the previous match in the UI.
 ---@field clear_search string Keymap name for clearing the search query in the UI.
+---@field preview_scroll_down string
+---@field preview_scroll_up string
 
 --- UI window and keymap configuration.
 ---@class ConfigUI
@@ -62,6 +64,8 @@ local config = {
             next_match = "n",
             prev_match = "N",
             clear_search = "<Esc>",
+            preview_scroll_down = "<C-d>",
+            preview_scroll_up = "<C-u>"
         },
     },
     excluded = {

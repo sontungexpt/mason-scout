@@ -105,7 +105,9 @@ local function mark_dirty()
     dirty = true
     if not autosave then
         autosave = true
-        vim.api.nvim_create_autocmd("VimLeave", { callback = save })
+        vim.api.nvim_create_autocmd("VimLeave", {
+            callback = save,
+        })
     end
 end
 

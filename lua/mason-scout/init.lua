@@ -89,48 +89,59 @@ end
 -- ============================================================================
 
 --- Group tools into plain package data keyed by category.
---- A package can declare many categories, so it is added under each of them.
---- Only categories with at least one tool appear in the result.
+--- A package can belong to multiple categories.
+--- Only categories containing at least one tool are included.
 ---@param tools Tool[] flat list of { name, spec, installed }
 ---@param n integer|nil number of tools to group (default: all)
+---@param keyword string normalized language keyword
 ---@return table<string, TabItem[]> tab_pkgs packages grouped by category
 ---@return string[] order category names, sorted alphabetically
-local function group_into_tabs(tools, n)
+local function group_into_tabs(tools, n, keyword)
     local tab_pkgs = {}
     local order = {}
-    local count = 0
 
-    for i = 1, n or #tools do
+    local recommendations = require("mason-scout.recommendation")
+    local total = n or #tools
+
+    for i = 1, total do
         local tool = tools[i]
         local spec = tool.spec
-        local cats = spec and spec.categories
-        if cats then
-            -- Values shared by every category of this tool
+
+        if spec then
             local name = spec.name
             local description = spec.description or name
             local installed = tool.installed or false
+            local categories = spec.categories
 
-            for j = 1, #cats do
-                local cat = cats[j]
-                local list = tab_pkgs[cat]
-                if not list then
-                    list = {}
-                    tab_pkgs[cat] = list
-                    count = count + 1
-                    order[count] = cat
+            if categories then
+                for j = 1, #categories do
+                    local cat = categories[j]
+                    local list = tab_pkgs[cat]
+
+                    if not list then
+                        list = {}
+                        tab_pkgs[cat] = list
+                        order[#order + 1] = cat
+                    end
+
+                    list[#list + 1] = {
+                        name = name,
+                        description = description,
+                        installed = installed,
+                        selected = false,
+                        recommended = recommendations.is_recommended(
+                            keyword,
+                            name,
+                            cat
+                        ),
+                    }
                 end
-                list[#list + 1] = {
-                    name = name,
-                    description = description,
-                    installed = installed,
-                    selected = false,
-                }
             end
         end
     end
 
-    -- Stable display order
     table.sort(order)
+
     return tab_pkgs, order
 end
 
@@ -279,7 +290,7 @@ M.scout = function()
                         if n == 0 then
                             return -- nothing in Mason for this keyword
                         end
-                        tab_pkgs, tab_order = group_into_tabs(tools, n)
+                        tab_pkgs, tab_order = group_into_tabs(tools, n, lkeyword)
                     end
 
                     -- Open the UI on the missing category's tab
@@ -322,13 +333,15 @@ M.open_ui = function()
     local keyword = ft ~= "" and ft
         or vim.filetype.match({ filename = vim.api.nvim_buf_get_name(bufnr) })
         or ""
+
     if keyword == "" then
         require("mason-scout.logger").warn("Can not get keyword from filetype or buffer name")
         return
     end
 
     local tools, n = require("mason-scout.mason").tools_by_keywords({ keyword })
-    local tab_pkgs, tab_order = group_into_tabs(tools, n)
+    keyword = keyword:lower()
+    local tab_pkgs, tab_order = group_into_tabs(tools, n, keyword)
     require("mason-scout.ui").open_tabs("Mason Scout: " .. keyword, tab_pkgs, tab_order, nil, {
         on_suppress = function(cat_arg)
             require("mason-scout.suppression").suppress(cat_arg, keyword)
