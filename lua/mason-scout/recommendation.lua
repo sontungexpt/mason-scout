@@ -2,17 +2,18 @@
 -- Package recommendations
 -- ============================================================================
 --
--- Curated packages indexed by normalized language keyword.
+-- Curated packages indexed by normalized Mason language keyword.
 --
 -- Each package maps to a category bitmask:
 --   language -> package name -> category mask
 --
 -- Keywords must match the lowercased values in Mason package `languages`.
--- Packages not present in the registry, deprecated packages, and packages
--- with incompatible language metadata are never recommended.
 --
--- The recommendation data is intentionally static. Mason availability,
--- installation status, and category validation are handled elsewhere.
+-- Packages not present in the registry, deprecated packages, and packages
+-- with incompatible language metadata must never be recommended.
+--
+-- This data is intentionally static. Registry availability, installation
+-- status, and category validation are handled elsewhere.
 
 local LSP_B       = 1
 local FORMATTER_B = 2
@@ -48,8 +49,10 @@ RECOMMENDATIONS.lua = {
 
 RECOMMENDATIONS.python = {
     basedpyright = LSP_B,
+    pyrefly = LSP_B + LINTER_B,
     ruff = FORMATTER_B + LINTER_B,
     debugpy = DAP_B,
+    bandit = LINTER_B,
 }
 
 -- ============================================================================
@@ -59,7 +62,10 @@ RECOMMENDATIONS.python = {
 local javascript_typescript = {
     vtsls = LSP_B,
     biome = FORMATTER_B + LINTER_B,
+    oxfmt = FORMATTER_B,
+    prettierd = FORMATTER_B,
     ["eslint-lsp"] = LSP_B,
+    eslint_d = LINTER_B,
     ["js-debug-adapter"] = DAP_B,
 }
 
@@ -72,51 +78,93 @@ RECOMMENDATIONS.typescript = javascript_typescript
 
 RECOMMENDATIONS.vue = {
     ["vue-language-server"] = LSP_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
+}
+
+-- ============================================================================
+-- Svelte
+-- ============================================================================
+
+RECOMMENDATIONS.svelte = {
+    ["svelte-language-server"] = LSP_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
 }
 
 -- ============================================================================
 -- Shell
 -- ============================================================================
 
-local shell = {
+local bash = {
     ["bash-language-server"] = LSP_B,
     shellcheck = LINTER_B,
     shfmt = FORMATTER_B,
 }
 
-RECOMMENDATIONS.bash = shell
-RECOMMENDATIONS.sh = shell
+RECOMMENDATIONS.bash = bash
+
+RECOMMENDATIONS.sh = {
+    ["bash-language-server"] = LSP_B,
+}
+
+RECOMMENDATIONS.shell = {
+    shfmt = FORMATTER_B,
+}
 
 -- ============================================================================
--- Web
+-- HTML
 -- ============================================================================
 
 RECOMMENDATIONS.html = {
     ["html-lsp"] = LSP_B,
-    prettier = FORMATTER_B,
-}
-
-RECOMMENDATIONS.css = {
-    ["css-lsp"] = LSP_B,
-    prettier = FORMATTER_B,
+    ["emmet-ls"] = LSP_B,
+    ["tailwindcss-language-server"] = LSP_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
 }
 
 -- ============================================================================
--- Data and configuration
+-- CSS
+-- ============================================================================
+
+RECOMMENDATIONS.css = {
+    ["css-lsp"] = LSP_B,
+    ["tailwindcss-language-server"] = LSP_B,
+    biome = FORMATTER_B + LINTER_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
+}
+
+-- ============================================================================
+-- JSON
 -- ============================================================================
 
 RECOMMENDATIONS.json = {
     ["json-lsp"] = LSP_B,
     biome = FORMATTER_B + LINTER_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
 }
+
+-- ============================================================================
+-- YAML
+-- ============================================================================
 
 RECOMMENDATIONS.yaml = {
     ["yaml-language-server"] = LSP_B,
     yamllint = LINTER_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
 }
+
+-- ============================================================================
+-- TOML
+-- ============================================================================
 
 RECOMMENDATIONS.toml = {
     taplo = LSP_B + FORMATTER_B,
+    ["pyproject-fmt"] = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -126,6 +174,9 @@ RECOMMENDATIONS.toml = {
 RECOMMENDATIONS.markdown = {
     marksman = LSP_B,
     ["markdownlint-cli2"] = LINTER_B,
+    prettierd = FORMATTER_B,
+    oxfmt = FORMATTER_B,
+    cbfmt = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -135,7 +186,9 @@ RECOMMENDATIONS.markdown = {
 RECOMMENDATIONS.java = {
     jdtls = LSP_B,
     ["java-debug-adapter"] = DAP_B,
+    ["java-test"] = DAP_B,
     ["google-java-format"] = FORMATTER_B,
+    checkstyle = LINTER_B,
 }
 
 -- ============================================================================
@@ -145,6 +198,7 @@ RECOMMENDATIONS.java = {
 RECOMMENDATIONS.kotlin = {
     ["kotlin-language-server"] = LSP_B,
     ktlint = FORMATTER_B + LINTER_B,
+    detekt = LINTER_B,
 }
 
 -- ============================================================================
@@ -153,20 +207,45 @@ RECOMMENDATIONS.kotlin = {
 
 RECOMMENDATIONS.rust = {
     ["rust-analyzer"] = LSP_B,
+    codelldb = DAP_B,
 }
 
 -- ============================================================================
--- C / C++
+-- C
 -- ============================================================================
 
-local cpp = {
+RECOMMENDATIONS.c = {
     clangd = LSP_B,
     ["clang-format"] = FORMATTER_B,
     ["clang-tidy"] = LINTER_B,
+    codelldb = DAP_B,
 }
 
-RECOMMENDATIONS.c = cpp
-RECOMMENDATIONS.cpp = cpp
+-- ============================================================================
+-- C++
+-- ============================================================================
+
+RECOMMENDATIONS.cpp = RECOMMENDATIONS.c
+
+-- ============================================================================
+-- CMake
+-- ============================================================================
+
+RECOMMENDATIONS.cmake = {
+    neocmakelsp = LSP_B,
+    ["cmake-language-server"] = LSP_B,
+    cmakelang = FORMATTER_B + LINTER_B,
+}
+
+-- ============================================================================
+-- Zig
+-- ============================================================================
+
+RECOMMENDATIONS.zig = {
+    zls = LSP_B,
+    codelldb = DAP_B,
+    zlint = LINTER_B,
+}
 
 -- ============================================================================
 -- Go
@@ -175,8 +254,10 @@ RECOMMENDATIONS.cpp = cpp
 RECOMMENDATIONS.go = {
     gopls = LSP_B,
     goimports = FORMATTER_B,
+    gofumpt = FORMATTER_B,
     ["golangci-lint"] = LINTER_B,
     delve = DAP_B,
+    ["go-debug-adapter"] = DAP_B,
 }
 
 -- ============================================================================
@@ -185,6 +266,7 @@ RECOMMENDATIONS.go = {
 
 RECOMMENDATIONS["c#"] = {
     ["roslyn-language-server"] = LSP_B,
+    netcoredbg = DAP_B,
 }
 
 -- ============================================================================
@@ -193,7 +275,32 @@ RECOMMENDATIONS["c#"] = {
 
 RECOMMENDATIONS.sql = {
     ["postgres-language-server"] = LSP_B + LINTER_B,
+    sqlfluff = FORMATTER_B + LINTER_B,
+    ["sql-formatter"] = FORMATTER_B,
+    pgformatter = FORMATTER_B,
 }
+
+RECOMMENDATIONS.postgres = RECOMMENDATIONS.sql
+
+-- ============================================================================
+-- HTTP
+-- ============================================================================
+
+RECOMMENDATIONS.http = {
+    ["kulala-fmt"] = FORMATTER_B,
+}
+
+-- ============================================================================
+-- XML
+-- ============================================================================
+
+RECOMMENDATIONS.xml = {
+    lemminx = LSP_B,
+}
+
+-- ============================================================================
+-- Module
+-- ============================================================================
 
 local M = {}
 
@@ -203,7 +310,9 @@ local M = {}
 ---@param cat string package category
 ---@return boolean
 function M.is_recommended(keyword, package_name, cat)
-    if not keyword or keyword == "" or not package_name then
+    if type(keyword) ~= "string" or keyword == ""
+        or type(package_name) ~= "string" or package_name == ""
+    then
         return false
     end
 
@@ -218,6 +327,7 @@ function M.is_recommended(keyword, package_name, cat)
     end
 
     local mask = language_recommendations[package_name]
+
     return mask ~= nil and bit.band(mask, category_bit) ~= 0
 end
 

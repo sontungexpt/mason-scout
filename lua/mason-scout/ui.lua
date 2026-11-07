@@ -420,50 +420,40 @@ end
 local function build_help(width, tab_name)
     local maps = mappings()
 
-    local primary = {
+    local chunks = {
         maps.up .. "/" .. maps.down .. ": Move",
         maps.toggle .. ": Toggle",
         maps.reset .. ": Reset",
         maps.install .. ": Install",
         maps.close .. ": Close",
         maps.search .. ": Search",
+        maps.suppress .. ": Never suggest " .. safe_str(tab_name or "category"),
+        maps.mason .. ": Mason UI",
+        maps.preview_scroll_down .. "/" .. maps.preview_scroll_up .. ": Scroll preview",
     }
 
-    local secondary = {
-        maps.suppress .. " Never suggest " .. safe_str(tab_name or "category"),
-        maps.mason .. " Mason UI",
-        maps.preview_scroll_down .. "/" .. maps.preview_scroll_up .. " Description",
-    }
+    local lines = {}
+    local current = ""
 
-    local function pack(chunks)
-        local lines = {}
-        local current = ""
+    for i = 1, #chunks do
+        local chunk = chunks[i]
+        local candidate = current == ""
+            and ("  " .. chunk)
+            or (current .. "   " .. chunk)
 
-        for i = 1, #chunks do
-            local chunk = chunks[i]
-            local candidate = current == ""
-                and ("  " .. chunk)
-                or (current .. "   " .. chunk)
-
-            if current ~= ""
-                and fn.strdisplaywidth(candidate) > width - 2
-            then
-                lines[#lines + 1] = fit(current, width)
-                current = "  " .. chunk
-            else
-                current = candidate
-            end
-        end
-
-        if current ~= "" then
+        if current ~= ""
+            and fn.strdisplaywidth(candidate) > width - 2
+        then
             lines[#lines + 1] = fit(current, width)
+            current = "  " .. chunk
+        else
+            current = candidate
         end
-
-        return lines
     end
 
-    local lines = pack(primary)
-    vim.list_extend(lines, pack(secondary))
+    if current ~= "" then
+        lines[#lines + 1] = fit(current, width)
+    end
 
     return lines
 end

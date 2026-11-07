@@ -11,6 +11,9 @@ function M.setup(opts)
     M.setup_commands()
 end
 
+-- ============================================================================
+-- Commands
+-- ============================================================================
 
 ---@class MasonScoutSubcommand
 ---@field name string Name typed after :MasonScout
@@ -18,18 +21,11 @@ end
 ---@field run fun() Handler
 
 --- Register the :MasonScout command.
---- Registration is deferred until the command line is first opened, so
---- startup pays nothing for it.
----
----   :MasonScout                  open the UI (same as `ui`)
----   :MasonScout ui               open the UI for the current buffer
----   :MasonScout unsuppress-all   show every suppressed suggestion again
+--- Registration is deferred until the command line is first opened.
 M.setup_commands = function()
     vim.api.nvim_create_autocmd("CmdlineEnter", {
         once = true,
         callback = function()
-            --- To add a new command, add one entry here. Dispatch, completion
-            --- and the error message all read from this table.
             ---@type MasonScoutSubcommand[]
             local subcommands = {
                 {
@@ -47,37 +43,46 @@ M.setup_commands = function()
             }
 
             vim.api.nvim_create_user_command("MasonScout", function(cmd)
-                -- No argument: default to opening the UI
                 local name = cmd.args == "" and "ui" or cmd.args
-                for _, sub in ipairs(subcommands) do
-                    if sub.name == name then
-                        sub.run()
+
+                for _, subcommand in ipairs(subcommands) do
+                    if subcommand.name == name then
+                        subcommand.run()
                         return
                     end
                 end
 
-                -- Unknown subcommand: list the valid ones with descriptions
-                local lines = { ("Unknown subcommand '%s'. Available:"):format(name) }
-                for _, s in ipairs(subcommands) do
-                    lines[#lines + 1] = ("  %s  %s"):format(s.name, s.desc)
+                local lines = {
+                    ("Unknown subcommand '%s'. Available:"):format(name),
+                }
+
+                for _, subcommand in ipairs(subcommands) do
+                    lines[#lines + 1] = (
+                        "  %s  %s"
+                    ):format(subcommand.name, subcommand.desc)
                 end
-                require("mason-scout.logger").warn(table.concat(lines, "\n"))
+
+                require("mason-scout.logger").warn(
+                    table.concat(lines, "\n")
+                )
             end, {
                 nargs = "?",
                 desc = "Mason Scout: open UI for current buffer",
-                -- Runs only when the user presses <Tab>
+
                 complete = function(arg_lead, cmdline)
-                    -- First argument is already finished: nothing more to complete
                     if cmdline:find("^%s*%S+%s+%S+%s") then
                         return {}
                     end
-                    local out = {}
-                    for _, sub in ipairs(subcommands) do
-                        if vim.startswith(sub.name, arg_lead) then
-                            out[#out + 1] = sub.name
+
+                    local results = {}
+
+                    for _, subcommand in ipairs(subcommands) do
+                        if vim.startswith(subcommand.name, arg_lead) then
+                            results[#results + 1] = subcommand.name
                         end
                     end
-                    return out
+
+                    return results
                 end,
             })
         end,
@@ -94,16 +99,14 @@ end
 ---@param tools Tool[] flat list of { name, spec, installed }
 ---@param n integer|nil number of tools to group (default: all)
 ---@param keyword string normalized language keyword
----@return table<string, TabItem[]> tab_pkgs packages grouped by category
----@return string[] order category names, sorted alphabetically
+---@return table<string, TabItem[]> tab_pkgs
+---@return string[] order
 local function group_into_tabs(tools, n, keyword)
     local tab_pkgs = {}
     local order = {}
 
-    local recommendations = require("mason-scout.recommendation")
-    local total = n or #tools
-
-    for i = 1, total do
+    local recommendation = require("mason-scout.recommendation")
+    for i = 1, n or #tools do
         local tool = tools[i]
         local spec = tool.spec
 
@@ -115,24 +118,24 @@ local function group_into_tabs(tools, n, keyword)
 
             if categories then
                 for j = 1, #categories do
-                    local cat = categories[j]
-                    local list = tab_pkgs[cat]
+                    local category = categories[j]
+                    local packages = tab_pkgs[category]
 
-                    if not list then
-                        list = {}
-                        tab_pkgs[cat] = list
-                        order[#order + 1] = cat
+                    if not packages then
+                        packages = {}
+                        tab_pkgs[category] = packages
+                        order[#order + 1] = category
                     end
 
-                    list[#list + 1] = {
+                    packages[#packages + 1] = {
                         name = name,
                         description = description,
                         installed = installed,
                         selected = false,
-                        recommended = recommendations.is_recommended(
+                        recommended = recommendation.is_recommended(
                             keyword,
                             name,
-                            cat
+                            category
                         ),
                     }
                 end
@@ -145,7 +148,6 @@ local function group_into_tabs(tools, n, keyword)
     return tab_pkgs, order
 end
 
-
 -- ============================================================================
 -- Auto detection
 -- ============================================================================
@@ -153,49 +155,119 @@ end
 --- Watch buffer events and suggest packages when a capability is missing.
 M.scout = function()
     --- Map an autocmd event to a detection category.
-    --- Also returns a bit flag used to dedupe categories without allocating a table.
+    --- The returned flag is used to deduplicate categories in a batch.
     ---
-    --- NOTE: the DAP condition keeps the original operator precedence on purpose:
-    --- (FileType and dapui) or dap-repl or dap-terminal. To restrict all three
-    --- filetypes to the FileType event, write:
-    ---   event == "FileType" and (ft == "dapui" or ft == "dap-repl" or ft == "dap-terminal")
+    --- NOTE: Preserve the original DAP operator precedence:
+    --- (FileType and dapui) or dap-repl or dap-terminal.
     ---@param event string
     ---@param ft string
-    ---@return string cat
+    ---@return string category
     ---@return integer flag
     local function category_for(event, ft)
         if event == "BufWritePre" then
             return "Formatter", 2
         elseif event == "BufWritePost" then
             return "Linter", 4
-        elseif (event == "FileType" and ft == "dapui") or ft == "dap-repl" or ft == "dap-terminal" then
+        elseif (event == "FileType" and ft == "dapui")
+            or ft == "dap-repl"
+            or ft == "dap-terminal"
+        then
             return "DAP", 8
         end
+
         return "LSP", 1
     end
 
-    --- Ask the detector whether a capability is missing for this buffer.
-    --- The detector module is loaded only on the first call.
-    ---@param cat string
+    --- Check whether a capability is missing.
+    --- Detector is loaded only when detection is required.
+    ---@param category string
     ---@param bufnr integer
     ---@param ft string
     ---@return boolean
-    local function is_missing(cat, bufnr, ft)
+    local function is_missing(category, bufnr, ft)
         local detector = require("mason-scout.detector")
-        if cat == "LSP" then
+
+        if category == "LSP" then
             return detector.missing_lsp(bufnr)
-        elseif cat == "Formatter" then
+        elseif category == "Formatter" then
             return detector.missing_formatter(bufnr)
-        elseif cat == "Linter" then
+        elseif category == "Linter" then
             return detector.missing_linter(ft)
         end
+
         return detector.missing_dap(bufnr)
     end
 
-    --- bufnr -> first event name (string), or a list once a second event arrives.
-    --- A plain string avoids allocating a table in the common single-event case.
+    -- ========================================================================
+    -- State
+    -- ========================================================================
+
+    --- Buffer event queue.
+    --- A string represents one event; a table represents multiple events.
     ---@type table<integer, string|string[]>
     local pending = {}
+
+    --- Detection cache.
+    ---
+    --- Structure:
+    --- seen_cache[bufnr][keyword][category] = true
+    ---
+    --- Prevents reopening the same automatic suggestion UI repeatedly.
+    ---@type table<integer, table<string, table<string, boolean>>>
+    local seen_cache = {}
+
+    --- Check whether a category has already triggered for this buffer/keyword.
+    ---@param bufnr integer
+    ---@param keyword string
+    ---@param category string
+    ---@return boolean
+    local function has_seen(bufnr, keyword, category)
+        local buffer_cache = seen_cache[bufnr]
+        local keyword_cache = buffer_cache and buffer_cache[keyword]
+
+        return keyword_cache ~= nil and keyword_cache[category] == true
+    end
+
+    --- Mark a category as handled for this buffer/keyword.
+    ---@param bufnr integer
+    ---@param keyword string
+    ---@param category string
+    local function mark_seen(bufnr, keyword, category)
+        local buffer_cache = seen_cache[bufnr]
+
+        if not buffer_cache then
+            buffer_cache = {}
+            seen_cache[bufnr] = buffer_cache
+        end
+
+        local keyword_cache = buffer_cache[keyword]
+
+        if not keyword_cache then
+            keyword_cache = {}
+            buffer_cache[keyword] = keyword_cache
+        end
+
+        keyword_cache[category] = true
+    end
+
+    -- ========================================================================
+    -- Autocmds
+    -- ========================================================================
+
+    local group = vim.api.nvim_create_augroup(
+        "MasonScout_Watcher",
+        { clear = true }
+    )
+
+    -- Clean up state only when a buffer is permanently removed.
+    vim.api.nvim_create_autocmd("BufWipeout", {
+        group = group,
+        desc = "MasonScout: cleanup buffer cache",
+        callback = function(args)
+            pending[args.buf] = nil
+            seen_cache[args.buf] = nil
+        end,
+    })
 
     vim.api.nvim_create_autocmd({
         "BufReadPost",
@@ -204,113 +276,188 @@ M.scout = function()
         "BufWritePre",
         "BufWritePost",
     }, {
-        group = vim.api.nvim_create_augroup("MasonScoutAutoTrigger", { clear = true }),
+        group = group,
         desc = "MasonScout: detect and suggest missing package",
+
         callback = function(args)
             local bufnr = args.buf
+            local event = args.event
+
             local config = require("mason-scout.config")
+
             if config.should_ignore(bufnr) then
                 return
             end
 
-            -- A detection is already scheduled for this buffer: just record the event
-            local queue = pending[bufnr]
-            if queue then
-                if type(queue) == "string" then
-                    pending[bufnr] = { queue, args.event }
+            -- An event is already scheduled for this buffer.
+            -- Append it instead of scheduling another deferred callback.
+            local queued_events = pending[bufnr]
+
+            if queued_events then
+                if type(queued_events) == "string" then
+                    pending[bufnr] = {
+                        queued_events,
+                        event,
+                    }
                 else
-                    queue[#queue + 1] = args.event
+                    queued_events[#queued_events + 1] = event
                 end
+
                 return
             end
 
-            pending[bufnr] = args.event
-            local file = args.file
+            pending[bufnr] = event
 
-            -- Defer so several events in quick succession are handled once
+            local filename = args.file
+
+            -- Batch events occurring within the same short interval.
             vim.defer_fn(function()
                 local queued = pending[bufnr]
+
+                -- Release pending state before processing.
                 pending[bufnr] = nil
-                if not queued or not vim.api.nvim_buf_is_loaded(bufnr) then
+
+                if not queued
+                    or not vim.api.nvim_buf_is_valid(bufnr)
+                    or not vim.api.nvim_buf_is_loaded(bufnr)
+                then
                     return
                 end
 
-                local count = type(queued) == "table" and #queued or 1
-                local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
+                local event_count = type(queued) == "table" and #queued or 1
+
+                local ft = vim.api.nvim_get_option_value(
+                    "filetype",
+                    { buf = bufnr }
+                )
+
                 local detection = config.current.detection
 
-                local seen = 0 -- bitmask of categories already handled
-                -- Computed on first need, then reused by later categories
-                local keyword, lkeyword, tab_pkgs, tab_order
+                -- Event deduplication bitmask.
+                -- Separate from seen_cache to avoid shadowing.
+                local event_flags = 0
 
-                for i = 1, count do
+                -- Lazily computed and reused throughout this batch.
+                local keyword
+                local tab_keyword
+                local tab_pkgs
+                local tab_order
+
+                for i = 1, event_count do
                     ---@type string
-                    local event
+                    local current_event
+
                     if type(queued) == "table" then
-                        event = queued[i]
+                        current_event = queued[i]
                     else
-                        event = queued
+                        current_event = queued
                     end
 
-                    local cat, flag = category_for(event, ft)
+                    local category, flag = category_for(
+                        current_event,
+                        ft
+                    )
 
-                    -- Several events can map to the same category: handle it once
-                    if count > 1 then
-                        if bit.band(seen, flag) ~= 0 then
+                    -- Several events can map to the same category.
+                    if event_count > 1 then
+                        if bit.band(event_flags, flag) ~= 0 then
                             goto continue
                         end
-                        seen = bit.bor(seen, flag)
+
+                        event_flags = bit.bor(event_flags, flag)
                     end
 
-                    -- Skip categories the user disabled
-                    if detection and not detection[cat] then
+                    -- Skip disabled detection categories.
+                    if detection and not detection[category] then
                         goto continue
                     end
 
-                    -- Search keyword: filetype, falling back to the file name
+                    -- Resolve keyword only when needed.
                     if not keyword then
-                        keyword = ft ~= "" and ft or vim.filetype.match({ filename = file }) or ""
+                        keyword = ft ~= ""
+                            and ft
+                            or vim.filetype.match({
+                                filename = filename,
+                            })
+                            or ""
+
+                        keyword = keyword:lower()
                     end
+
                     if keyword == "" then
-                        return -- no keyword for any category, stop here
+                        return
                     end
 
-                    if require("mason-scout.suppression").is_suppressed(cat, keyword) then
+                    -- Avoid reopening an already handled UI.
+                    if has_seen(bufnr, keyword, category) then
                         goto continue
                     end
 
-                    if not is_missing(cat, bufnr, ft) then
+                    -- Respect user suppression.
+                    if require("mason-scout.suppression").is_suppressed(
+                        category,
+                        keyword
+                    ) then
                         goto continue
                     end
 
-                    -- Mason lookup is the same for every category: do it once
+                    -- Check whether the capability is actually missing.
+                    if not is_missing(category, bufnr, ft) then
+                        goto continue
+                    end
+
+                    -- Mason lookup is shared by all categories in this batch.
                     if not tab_pkgs then
-                        lkeyword = keyword:lower()
-                        local tools, n = require("mason-scout.mason").tools_by_keywords({ lkeyword })
-                        if n == 0 then
-                            return -- nothing in Mason for this keyword
+                        tab_keyword = keyword
+
+                        local tools, tool_count =
+                            require("mason-scout.mason").tools_by_keywords({
+                                tab_keyword,
+                            })
+
+                        if tool_count == 0 then
+                            return
                         end
-                        tab_pkgs, tab_order = group_into_tabs(tools, n, lkeyword)
+
+                        tab_pkgs, tab_order = group_into_tabs(
+                            tools,
+                            tool_count,
+                            tab_keyword
+                        )
                     end
 
-                    -- Open the UI on the missing category's tab
-                    if tab_pkgs[cat] then
+                    -- Open the UI for the missing category.
+                    if tab_pkgs[category] then
                         require("mason-scout.ui").open_tabs(
-                            ("Mason Scout: %s for %s"):format(cat, lkeyword),
+                            ("Mason Scout: %s for %s"):format(
+                                category,
+                                tab_keyword
+                            ),
                             tab_pkgs,
                             tab_order,
-                            cat,
+                            category,
                             {
-                                on_suppress = function(cat_arg)
-                                    require("mason-scout.suppression").suppress(cat_arg, lkeyword)
+                                on_suppress = function(category_arg)
+                                    require("mason-scout.suppression").suppress(
+                                        category_arg,
+                                        tab_keyword
+                                    )
                                 end,
-                                on_install = function(pkgs)
-                                    require("mason-scout.mason").install_packages(pkgs)
+
+                                on_install = function(packages)
+                                    require("mason-scout.mason").install_packages(
+                                        packages
+                                    )
                                 end,
                             }
                         )
-                        return -- one UI per buffer is enough
+
+                        -- Mark only after open_tabs returns successfully.
+                        mark_seen(bufnr, keyword, category)
+
+                        return
                     end
+
                     ::continue::
                 end
             end, 500)
@@ -322,34 +469,68 @@ end
 -- Manual UI
 -- ============================================================================
 
---- Open the UI for the current buffer (all categories, no preselected tab).
+--- Open the UI for the current buffer.
+--- Manual invocation is independent of the automatic detection cache.
 M.open_ui = function()
     local bufnr = vim.api.nvim_get_current_buf()
-    if require("mason-scout.config").should_ignore(bufnr) then
+    local config = require("mason-scout.config")
+
+    if config.should_ignore(bufnr) then
         return
     end
 
-    local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
-    local keyword = ft ~= "" and ft
-        or vim.filetype.match({ filename = vim.api.nvim_buf_get_name(bufnr) })
+    local ft = vim.api.nvim_get_option_value(
+        "filetype",
+        { buf = bufnr }
+    )
+
+    local keyword = ft ~= ""
+        and ft
+        or vim.filetype.match({
+            filename = vim.api.nvim_buf_get_name(bufnr),
+        })
         or ""
 
     if keyword == "" then
-        require("mason-scout.logger").warn("Can not get keyword from filetype or buffer name")
+        require("mason-scout.logger").warn(
+            "Can not get keyword from filetype or buffer name"
+        )
         return
     end
 
-    local tools, n = require("mason-scout.mason").tools_by_keywords({ keyword })
     keyword = keyword:lower()
-    local tab_pkgs, tab_order = group_into_tabs(tools, n, keyword)
-    require("mason-scout.ui").open_tabs("Mason Scout: " .. keyword, tab_pkgs, tab_order, nil, {
-        on_suppress = function(cat_arg)
-            require("mason-scout.suppression").suppress(cat_arg, keyword)
-        end,
-        on_install = function(pkgs)
-            require("mason-scout.mason").install_packages(pkgs)
-        end,
-    })
+
+    local tools, tool_count =
+        require("mason-scout.mason").tools_by_keywords({
+            keyword,
+        })
+
+    local tab_pkgs, tab_order = group_into_tabs(
+        tools,
+        tool_count,
+        keyword
+    )
+
+    require("mason-scout.ui").open_tabs(
+        "Mason Scout: " .. keyword,
+        tab_pkgs,
+        tab_order,
+        nil,
+        {
+            on_suppress = function(category_arg)
+                require("mason-scout.suppression").suppress(
+                    category_arg,
+                    keyword
+                )
+            end,
+
+            on_install = function(packages)
+                require("mason-scout.mason").install_packages(
+                    packages
+                )
+            end,
+        }
+    )
 end
 
 return M
