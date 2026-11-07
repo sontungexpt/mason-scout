@@ -958,18 +958,22 @@ local function set_all_items_selected(value)
 end
 
 --- Uninstall the currently selected package if it is installed.
+--- Update every occurrence of the package across all tabs after success.
 local function uninstall_cursor_item()
     local tab = curr_tab()
+
     if not tab then
         return
     end
 
     local item = tab.items[tab.cursor]
+
     if not item or not item.installed then
         return
     end
 
     local handler = state.handlers.on_uninstall
+
     if type(handler) ~= "function" then
         return
     end
@@ -981,9 +985,30 @@ local function uninstall_cursor_item()
             return
         end
 
-        -- Refresh the installed state without closing the UI.
-        item.installed = false
-        item.selected = false
+        local total_selected = 0
+
+        -- Synchronize every occurrence across all tabs.
+        for _, current_tab in pairs(state.tabs) do
+            local selected_count = 0
+
+            for i = 1, #current_tab.items do
+                local current_item = current_tab.items[i]
+
+                if current_item.name == pkg_name then
+                    current_item.installed = false
+                    current_item.selected = false
+                end
+
+                if current_item.selected and not current_item.installed then
+                    selected_count = selected_count + 1
+                end
+            end
+
+            current_tab.total_selected = selected_count
+            total_selected = total_selected + selected_count
+        end
+
+        state.total_selected = total_selected
 
         render()
     end)
