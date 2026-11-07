@@ -133,7 +133,6 @@ RECOMMENDATIONS.html = {
     ["html-lsp"] = LSP_B,
     ["emmet-language-server"] = LSP_B,
     ["tailwindcss-language-server"] = LSP_B,
-
     oxfmt = FORMATTER_B,
 }
 
@@ -179,9 +178,6 @@ RECOMMENDATIONS.toml = {
 
     -- Fast general-purpose TOML formatter
     oxfmt = FORMATTER_B,
-
-    -- Specialized pyproject.toml formatter
-    ["pyproject-fmt"] = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -207,7 +203,6 @@ RECOMMENDATIONS.java = {
 
     ["java-debug-adapter"] = DAP_B,
     ["java-test"] = DAP_B,
-
     ["google-java-format"] = FORMATTER_B,
     checkstyle = LINTER_B,
 }
@@ -221,7 +216,7 @@ RECOMMENDATIONS.kotlin = {
     ["kotlin-lsp"] = LSP_B,
 
     -- Formatting and linting
-    ktlint = FORMATTER_B + LINTER_B,
+    ktfmt = FORMATTER_B,
     detekt = LINTER_B,
 }
 
@@ -240,10 +235,8 @@ RECOMMENDATIONS.rust = {
 
 local c_cpp = {
     clangd = LSP_B,
-
     ["clang-format"] = FORMATTER_B,
     ["clang-tidy"] = LINTER_B,
-
     codelldb = DAP_B,
 }
 
@@ -337,7 +330,7 @@ local M = {}
 --- Check whether a package is recommended for a language and category.
 ---@param keyword string Language keyword
 ---@param package_name string Mason package name
----@param cat string Package category
+---@param cat "LSP" | "DAP" | "Formatter" | "Linter" | "Runtime" | "Compiler" Package category
 ---@return boolean
 function M.is_recommended(keyword, package_name, cat)
     if type(keyword) ~= "string" or keyword == ""
