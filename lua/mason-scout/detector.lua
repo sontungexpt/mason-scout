@@ -15,29 +15,38 @@ local NON_LANGUAGE_CLIENTS = {
 }
 
 --- Code-intelligence methods. Formatting/diagnostics alone don't qualify.
+--- LSP methods that indicate actual language intelligence.
+--- Formatting, diagnostics, and code actions alone are not sufficient.
 local INTELLIGENCE_METHODS = {
     "textDocument/definition",
+    "textDocument/declaration",
     "textDocument/typeDefinition",
     "textDocument/implementation",
     "textDocument/references",
     "textDocument/documentSymbol",
-    "textDocument/rename",
+    "workspace/symbol",
     "textDocument/hover",
+    "textDocument/completion",
     "textDocument/signatureHelp",
+    "textDocument/rename",
 }
 
 --- True when no real language server is attached to the buffer.
----@param bufnr integer
+---@param bufnr? integer
 ---@return boolean
 function M.missing_lsp(bufnr)
     bufnr = bufnr or 0
-    for _, method in ipairs(INTELLIGENCE_METHODS) do
-        for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, method = method })) do
-            if not NON_LANGUAGE_CLIENTS[client.name] then
-                return false
+
+    for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+        if not NON_LANGUAGE_CLIENTS[client.name] then
+            for _, method in ipairs(INTELLIGENCE_METHODS) do
+                if client:supports_method(method, bufnr) then
+                    return false
+                end
             end
         end
     end
+
     return true
 end
 

@@ -23,12 +23,12 @@ local RUNTIME_B   = 16
 local COMPILER_B  = 32
 
 local BITS = {
-    LSP      = LSP_B,
+    LSP       = LSP_B,
     Formatter = FORMATTER_B,
-    Linter   = LINTER_B,
-    DAP      = DAP_B,
-    Runtime  = RUNTIME_B,
-    Compiler = COMPILER_B,
+    Linter    = LINTER_B,
+    DAP       = DAP_B,
+    Runtime   = RUNTIME_B,
+    Compiler  = COMPILER_B,
 }
 
 local RECOMMENDATIONS = {}
@@ -48,11 +48,15 @@ RECOMMENDATIONS.lua = {
 -- ============================================================================
 
 RECOMMENDATIONS.python = {
+    -- Language intelligence / type checking
     basedpyright = LSP_B,
-    pyrefly = LSP_B + LINTER_B,
+    pyrefly = LSP_B,
+
+    -- Unified fast linter and formatter
     ruff = FORMATTER_B + LINTER_B,
+
+    -- Debugging
     debugpy = DAP_B,
-    bandit = LINTER_B,
 }
 
 -- ============================================================================
@@ -60,12 +64,17 @@ RECOMMENDATIONS.python = {
 -- ============================================================================
 
 local javascript_typescript = {
+    -- Language intelligence
     vtsls = LSP_B,
-    biome = FORMATTER_B + LINTER_B,
+
+    -- Fast native Rust formatter and linter
     oxfmt = FORMATTER_B,
-    prettierd = FORMATTER_B,
-    ["eslint-lsp"] = LSP_B,
-    eslint_d = LINTER_B,
+    oxlint = LINTER_B,
+
+    -- ESLint compatibility for projects relying on ESLint plugins/configuration
+    ["eslint-lsp"] = LSP_B + LINTER_B,
+
+    -- Debugging
     ["js-debug-adapter"] = DAP_B,
 }
 
@@ -78,8 +87,10 @@ RECOMMENDATIONS.typescript = javascript_typescript
 
 RECOMMENDATIONS.vue = {
     ["vue-language-server"] = LSP_B,
+
+    -- Oxfmt's Vue support currently uses its npm distribution.
+    -- Keep Prettierd as the straightforward Mason recommendation.
     prettierd = FORMATTER_B,
-    oxfmt = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -89,7 +100,6 @@ RECOMMENDATIONS.vue = {
 RECOMMENDATIONS.svelte = {
     ["svelte-language-server"] = LSP_B,
     prettierd = FORMATTER_B,
-    oxfmt = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -106,10 +116,13 @@ RECOMMENDATIONS.bash = bash
 
 RECOMMENDATIONS.sh = {
     ["bash-language-server"] = LSP_B,
+    shellcheck = LINTER_B,
+    shfmt = FORMATTER_B,
 }
 
 RECOMMENDATIONS.shell = {
     shfmt = FORMATTER_B,
+    shellcheck = LINTER_B,
 }
 
 -- ============================================================================
@@ -118,9 +131,9 @@ RECOMMENDATIONS.shell = {
 
 RECOMMENDATIONS.html = {
     ["html-lsp"] = LSP_B,
-    ["emmet-ls"] = LSP_B,
+    ["emmet-language-server"] = LSP_B,
     ["tailwindcss-language-server"] = LSP_B,
-    prettierd = FORMATTER_B,
+
     oxfmt = FORMATTER_B,
 }
 
@@ -131,8 +144,7 @@ RECOMMENDATIONS.html = {
 RECOMMENDATIONS.css = {
     ["css-lsp"] = LSP_B,
     ["tailwindcss-language-server"] = LSP_B,
-    biome = FORMATTER_B + LINTER_B,
-    prettierd = FORMATTER_B,
+
     oxfmt = FORMATTER_B,
 }
 
@@ -142,8 +154,7 @@ RECOMMENDATIONS.css = {
 
 RECOMMENDATIONS.json = {
     ["json-lsp"] = LSP_B,
-    biome = FORMATTER_B + LINTER_B,
-    prettierd = FORMATTER_B,
+
     oxfmt = FORMATTER_B,
 }
 
@@ -153,8 +164,8 @@ RECOMMENDATIONS.json = {
 
 RECOMMENDATIONS.yaml = {
     ["yaml-language-server"] = LSP_B,
+
     yamllint = LINTER_B,
-    prettierd = FORMATTER_B,
     oxfmt = FORMATTER_B,
 }
 
@@ -163,7 +174,13 @@ RECOMMENDATIONS.yaml = {
 -- ============================================================================
 
 RECOMMENDATIONS.toml = {
-    taplo = LSP_B + FORMATTER_B,
+    -- Primary TOML language server and formatter
+    tombi = LSP_B + FORMATTER_B,
+
+    -- Fast general-purpose TOML formatter
+    oxfmt = FORMATTER_B,
+
+    -- Specialized pyproject.toml formatter
     ["pyproject-fmt"] = FORMATTER_B,
 }
 
@@ -173,10 +190,12 @@ RECOMMENDATIONS.toml = {
 
 RECOMMENDATIONS.markdown = {
     marksman = LSP_B,
-    ["markdownlint-cli2"] = LINTER_B,
-    prettierd = FORMATTER_B,
+
+    -- Fast native Markdown linting
+    rumdl = LINTER_B,
+
+    -- Fast formatting
     oxfmt = FORMATTER_B,
-    cbfmt = FORMATTER_B,
 }
 
 -- ============================================================================
@@ -185,8 +204,10 @@ RECOMMENDATIONS.markdown = {
 
 RECOMMENDATIONS.java = {
     jdtls = LSP_B,
+
     ["java-debug-adapter"] = DAP_B,
     ["java-test"] = DAP_B,
+
     ["google-java-format"] = FORMATTER_B,
     checkstyle = LINTER_B,
 }
@@ -196,7 +217,10 @@ RECOMMENDATIONS.java = {
 -- ============================================================================
 
 RECOMMENDATIONS.kotlin = {
-    ["kotlin-language-server"] = LSP_B,
+    -- Official Kotlin language server (currently alpha)
+    ["kotlin-lsp"] = LSP_B,
+
+    -- Formatting and linting
     ktlint = FORMATTER_B + LINTER_B,
     detekt = LINTER_B,
 }
@@ -214,18 +238,22 @@ RECOMMENDATIONS.rust = {
 -- C
 -- ============================================================================
 
-RECOMMENDATIONS.c = {
+local c_cpp = {
     clangd = LSP_B,
+
     ["clang-format"] = FORMATTER_B,
     ["clang-tidy"] = LINTER_B,
+
     codelldb = DAP_B,
 }
+
+RECOMMENDATIONS.c = c_cpp
 
 -- ============================================================================
 -- C++
 -- ============================================================================
 
-RECOMMENDATIONS.cpp = RECOMMENDATIONS.c
+RECOMMENDATIONS.cpp = c_cpp
 
 -- ============================================================================
 -- CMake
@@ -233,7 +261,7 @@ RECOMMENDATIONS.cpp = RECOMMENDATIONS.c
 
 RECOMMENDATIONS.cmake = {
     neocmakelsp = LSP_B,
-    ["cmake-language-server"] = LSP_B,
+
     cmakelang = FORMATTER_B + LINTER_B,
 }
 
@@ -244,7 +272,6 @@ RECOMMENDATIONS.cmake = {
 RECOMMENDATIONS.zig = {
     zls = LSP_B,
     codelldb = DAP_B,
-    zlint = LINTER_B,
 }
 
 -- ============================================================================
@@ -253,11 +280,13 @@ RECOMMENDATIONS.zig = {
 
 RECOMMENDATIONS.go = {
     gopls = LSP_B,
-    goimports = FORMATTER_B,
+
     gofumpt = FORMATTER_B,
+    goimports = FORMATTER_B,
+
     ["golangci-lint"] = LINTER_B,
+
     delve = DAP_B,
-    ["go-debug-adapter"] = DAP_B,
 }
 
 -- ============================================================================
@@ -274,7 +303,8 @@ RECOMMENDATIONS["c#"] = {
 -- ============================================================================
 
 RECOMMENDATIONS.sql = {
-    ["postgres-language-server"] = LSP_B + LINTER_B,
+    ["postgres-language-server"] = LSP_B,
+
     sqlfluff = FORMATTER_B + LINTER_B,
     ["sql-formatter"] = FORMATTER_B,
     pgformatter = FORMATTER_B,
@@ -305,9 +335,9 @@ RECOMMENDATIONS.xml = {
 local M = {}
 
 --- Check whether a package is recommended for a language and category.
----@param keyword string language keyword
+---@param keyword string Language keyword
 ---@param package_name string Mason package name
----@param cat string package category
+---@param cat string Package category
 ---@return boolean
 function M.is_recommended(keyword, package_name, cat)
     if type(keyword) ~= "string" or keyword == ""
