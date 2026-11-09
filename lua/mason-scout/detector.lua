@@ -14,9 +14,10 @@ local NON_LANGUAGE_CLIENTS = {
     ["harper_ls"] = true,
 }
 
---- Code-intelligence methods. Formatting/diagnostics alone don't qualify.
---- LSP methods that indicate actual language intelligence.
---- Formatting, diagnostics, and code actions alone are not sufficient.
+--- Methods that only a server which understands the language offers.
+--- hover / completion are left out on purpose: AI, snippet, prose and tool
+--- servers advertise them too. Formatting, diagnostics and code actions are
+--- left out for the same reason.
 local INTELLIGENCE_METHODS = {
     "textDocument/definition",
     "textDocument/declaration",
@@ -25,10 +26,8 @@ local INTELLIGENCE_METHODS = {
     "textDocument/references",
     "textDocument/documentSymbol",
     "workspace/symbol",
-    "textDocument/hover",
-    "textDocument/completion",
-    "textDocument/signatureHelp",
     "textDocument/rename",
+    "textDocument/signatureHelp",
 }
 
 --- True when no real language server is attached to the buffer.
@@ -38,7 +37,13 @@ function M.missing_lsp(bufnr)
     bufnr = bufnr or 0
 
     for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
-        if not NON_LANGUAGE_CLIENTS[client.name] then
+        if not NON_LANGUAGE_CLIENTS[client.name:lower()] then
+            -- `initialized` is nil until the initialize handshake finishes,
+            -- so capabilities are unknown yet: assume a real server.
+            if not client.initialized then
+                return false
+            end
+
             for _, method in ipairs(INTELLIGENCE_METHODS) do
                 if client:supports_method(method, bufnr) then
                     return false
