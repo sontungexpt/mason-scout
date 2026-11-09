@@ -384,7 +384,7 @@ M.scout = function(group)
 
 					-- Mason lookup is shared across categories.
 					if not tab_pkgs then
-						local tools, tool_count = require("mason-scout.mason").tools_by_keywords({ keywowd })
+						local tools, tool_count = require("mason-scout.mason").tools_by_keywords({ keyword })
 
 						if tool_count == 0 then
 							return
@@ -423,7 +423,7 @@ M.scout = function(group)
 
 					::continue::
 				end
-			end, 2000)
+			end, 1500)
 		end,
 	})
 end

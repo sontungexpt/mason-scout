@@ -34,16 +34,11 @@ local INTELLIGENCE_METHODS = {
 ---@param bufnr? integer
 ---@return boolean
 function M.missing_lsp(bufnr)
-    bufnr = bufnr or 0
-
-    for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
-        if not NON_LANGUAGE_CLIENTS[client.name:lower()] then
-            -- `initialized` is nil until the initialize handshake finishes,
-            -- so capabilities are unknown yet: assume a real server.
-            if not client.initialized then
-                return false
-            end
-
+    -- Get all clients for the buffer including uninitialized ones
+    -- Uninitialized clients are those that are waiting to connect to the server
+    local clients = vim.lsp.get_clients({ _uninitialized = true, bufnr = bufnr })
+    for _, client in ipairs(clients) do
+        if not NON_LANGUAGE_CLIENTS[client.name] then
             for _, method in ipairs(INTELLIGENCE_METHODS) do
                 if client:supports_method(method, bufnr) then
                     return false
@@ -60,8 +55,6 @@ end
 ---@param bufnr integer
 ---@return boolean
 function M.missing_formatter(bufnr)
-    bufnr = bufnr or 0
-
     local conform = package.loaded["conform"]
     if conform then
         for _, info in ipairs(conform.list_formatters(bufnr)) do
@@ -136,7 +129,7 @@ function M.missing_dap(bufnr)
         return true
     end
 
-    local configs = dap.configurations[vim.bo[bufnr or 0].filetype]
+    local configs = dap.configurations[vim.bo[bufnr].filetype]
     if not configs then
         return true
     end
