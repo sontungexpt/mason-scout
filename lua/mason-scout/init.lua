@@ -13,12 +13,12 @@ M.setup = function(opts)
 	})
 
 	M.scout(group)
-	M.setup_commands(group)
+	M.setup_commands()
 end
 
 -- ============================================================================
 -- Commands
--- ============================================================================
+-- ===========================================================================
 
 ---@class MasonScoutSubcommand
 ---@field name string
@@ -26,67 +26,60 @@ end
 ---@field run fun()
 
 --- Register the :MasonScout command on first command-line entry.
---- @param group integer
-M.setup_commands = function(group)
-	vim.api.nvim_create_autocmd("CmdlineEnter", {
-		group = group,
-		once = true,
-		callback = function()
-			---@type MasonScoutSubcommand[]
-			local subcommands = {
-				{
-					name = "ui",
-					desc = "open the UI for the current buffer",
-					run = M.open_ui,
-				},
-				{
-					name = "unsuppress-all",
-					desc = "show every suppressed suggestion again",
-					run = function()
-						require("mason-scout.suppression").reset()
-					end,
-				},
-			}
+M.setup_commands = function()
+	---@type MasonScoutSubcommand[]
+	local subcommands = {
+		{
+			name = "ui",
+			desc = "open the UI for the current buffer",
+			run = M.open_ui,
+		},
+		{
+			name = "unsuppress-all",
+			desc = "show every suppressed suggestion again",
+			run = function()
+				require("mason-scout.suppression").reset()
+			end,
+		},
+	}
 
-			vim.api.nvim_create_user_command("MasonScout", function(cmd)
-				local name = cmd.args == "" and "ui" or cmd.args
+	vim.api.nvim_create_user_command("MasonScout", function(cmd)
+		local name = cmd.args == "" and "ui" or cmd.args
 
-				for _, subcommand in ipairs(subcommands) do
-					if subcommand.name == name then
-						subcommand.run()
-						return
-					end
+		for _, subcommand in ipairs(subcommands) do
+			if subcommand.name == name then
+				subcommand.run()
+				return
+			end
+		end
+
+		local lines = {
+			("Unknown subcommand '%s'. Available:"):format(name),
+		}
+
+		for _, subcommand in ipairs(subcommands) do
+			lines[#lines + 1] = ("  %s  %s"):format(subcommand.name, subcommand.desc)
+		end
+
+		require("mason-scout.logger").warn(table.concat(lines, "\n"))
+	end, {
+		nargs = "?",
+		desc = "Mason Scout: open UI for current buffer",
+
+		complete = function(arg_lead, cmdline)
+			if cmdline:find("^%s*%S+%s+%S+%s") then
+				return {}
+			end
+
+			local results = {}
+
+			for _, subcommand in ipairs(subcommands) do
+				if vim.startswith(subcommand.name, arg_lead) then
+					results[#results + 1] = subcommand.name
 				end
+			end
 
-				local lines = {
-					("Unknown subcommand '%s'. Available:"):format(name),
-				}
-
-				for _, subcommand in ipairs(subcommands) do
-					lines[#lines + 1] = ("  %s  %s"):format(subcommand.name, subcommand.desc)
-				end
-
-				require("mason-scout.logger").warn(table.concat(lines, "\n"))
-			end, {
-				nargs = "?",
-				desc = "Mason Scout: open UI for current buffer",
-
-				complete = function(arg_lead, cmdline)
-					if cmdline:find("^%s*%S+%s+%S+%s") then
-						return {}
-					end
-
-					local results = {}
-
-					for _, subcommand in ipairs(subcommands) do
-						if vim.startswith(subcommand.name, arg_lead) then
-							results[#results + 1] = subcommand.name
-						end
-					end
-
-					return results
-				end,
-			})
+			return results
 		end,
 	})
 end
