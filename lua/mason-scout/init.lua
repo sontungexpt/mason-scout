@@ -8,17 +8,13 @@ M.setup = function(opts)
 		require("mason-scout.config").merge(opts)
 	end
 
-	local group = vim.api.nvim_create_augroup("mason-scout", {
-		clear = true,
-	})
-
-	M.scout(group)
+	M.scout()
 	M.setup_commands()
 end
 
 -- ============================================================================
 -- Commands
--- ===========================================================================
+-- ============================================================================
 
 ---@class MasonScoutSubcommand
 ---@field name string
@@ -65,7 +61,7 @@ M.setup_commands = function()
 	end, {
 		nargs = "?",
 		desc = "Mason Scout: open UI for current buffer",
-
+		force = true, -- survive :Lazy reload / re-source
 		complete = function(arg_lead, cmdline)
 			if cmdline:find("^%s*%S+%s+%S+%s") then
 				return {}
@@ -101,7 +97,6 @@ local group_into_tabs = function(tools, n, keyword)
 	local tab_pkgs = {}
 	local order = {}
 
-	-- Load recommendation only when a categorized package exists.
 	local recommendation = require("mason-scout.recommendation")
 
 	for i = 1, n do
@@ -152,13 +147,27 @@ local group_into_tabs = function(tools, n, keyword)
 	return tab_pkgs, order
 end
 
+--- Get the keyword for a buffer, either from the filetype or filename.
+---@param bufnr integer
+---@return string|nil
+local function get_keyword(bufnr)
+	local keyword = vim.api.nvim_get_option_value("filetype", { buf = bufnr }) or ""
+	if keyword == "" then
+		keyword = vim.filetype.match({ filename = vim.api.nvim_buf_get_name(bufnr) }) or ""
+		if keyword == "" then
+			-- No keyword found, skip this buffer.
+			return
+		end
+	end
+	return keyword:lower()
+end
+
 -- ============================================================================
 -- Auto detection
 -- ============================================================================
 
 --- Watch buffer events and suggest packages when a capability is missing.
---- @param group integer
-M.scout = function(group)
+M.scout = function()
 	local bit = bit or require("bit")
 
 	--- Map an autocmd event to a detection category.
@@ -179,7 +188,6 @@ M.scout = function(group)
 	end
 
 	--- Check whether a capability is missing.
-	--- Detector is loaded only when detection is required.
 	---@param category string
 	---@param bufnr integer
 	---@param ft string
@@ -239,6 +247,7 @@ M.scout = function(group)
 	-- Buffer cleanup
 	-- ========================================================================
 
+    local group = vim.api.nvim_create_augroup("mason-scout", { clear = true })
 	vim.api.nvim_create_autocmd("BufDelete", {
 		group = group,
 		desc = "MasonScout: cleanup buffer cache",
@@ -296,6 +305,13 @@ M.scout = function(group)
 
 			pending[bufnr] = event
 
+			-- Close any stale timer for this buffer before scheduling a new one.
+			local old_timer = timers[bufnr]
+			if old_timer and not old_timer:is_closing() then
+				old_timer:stop()
+				old_timer:close()
+			end
+
 			timers[bufnr] = vim.defer_fn(function()
 				local queued = pending[bufnr]
 
@@ -308,15 +324,17 @@ M.scout = function(group)
 
 				local event_count = type(queued) == "table" and #queued or 1
 
-				local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
-
 				local detection = config.current.detection
 
 				-- Event deduplication within the current batch.
 				local event_flags = 0
 
 				-- Values shared between categories in this batch.
-				local keyword
+				local keyword = get_keyword(bufnr)
+				if not keyword then
+					return
+				end
+
 				local tab_pkgs
 				local tab_order
 
@@ -344,21 +362,6 @@ M.scout = function(group)
 					if detection and not detection[category] then
 						goto continue
 					end
-
-					-- Resolve keyword only when needed.
-					if not keyword then
-						keyword = ft ~= "" and ft
-							or vim.filetype.match({ filename = vim.api.nvim_buf_get_name(bufnr) })
-							or ""
-
-						keyword = keyword:lower()
-					end
-
-					if keyword == "" then
-						return
-					end
-
-					keyword = keyword:lower()
 
 					-- Avoid reopening an already handled UI.
 					if has_seen(bufnr, keyword, flag) then
@@ -429,23 +432,16 @@ end
 --- Manual invocation is independent of automatic detection cache.
 function M.open_ui()
 	local bufnr = vim.api.nvim_get_current_buf()
-
 	local config = require("mason-scout.config")
 
 	if config.should_ignore(bufnr) then
 		return
 	end
 
-	local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
-
-	local keyword = ft ~= "" and ft or vim.filetype.match({ filename = vim.api.nvim_buf_get_name(bufnr) }) or ""
-
-	if keyword == "" then
-		require("mason-scout.logger").warn("Can not get keyword from filetype or buffer name")
+	local keyword = get_keyword(bufnr)
+	if not keyword then
 		return
 	end
-
-	keyword = keyword:lower()
 
 	local tools, tool_count = require("mason-scout.mason").tools_by_keywords({
 		keyword,

@@ -106,6 +106,7 @@ local function mark_dirty()
     if not autosave then
         autosave = true
         vim.api.nvim_create_autocmd("VimLeave", {
+            group = vim.api.nvim_create_augroup("mason-scout", {}),
             callback = save,
         })
     end
