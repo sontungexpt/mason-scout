@@ -319,6 +319,7 @@ RECOMMENDATIONS.http = {
 
 RECOMMENDATIONS.xml = {
     lemminx = LSP_B,
+    xmlformatter = FORMATTER_B,
 }
 
 -- ============================================================================
